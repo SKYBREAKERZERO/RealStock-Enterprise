@@ -1,0 +1,345 @@
+最终架构:
+                               Internet
+                                  │
+                              Route 53
+                                  │
+                             CloudFront
+                                  │
+                                WAF
+                                  │
+                               ACM TLS
+                                  │
+                    ┌──────────── ALB ─────────────┐
+                    │                              │
+               Public Subnet A               Public Subnet B
+                    │                              │
+──────────────────────────────── VPC ───────────────────────────────
+
+                 Private App Subnet A      Private App Subnet B
+                          │                         │
+                          └────── ECS Fargate ─────┘
+                                   │
+                     ┌─────────────┼──────────────┐
+                     │             │              │
+                 Web/API       Ingestor       Alert Worker
+                 FastAPI       Service          Worker
+                     │             │
+                     │             ▼
+                     │      Kinesis Data Streams
+                     │             │
+                     │             ▼
+                     │     Managed Apache Flink
+                     │             │
+                     │     ┌───────┼─────────┐
+                     │     │       │         │
+                     ▼     ▼       ▼         ▼
+                  Aurora DynamoDB Redis      S3
+                     │                       │
+                  RDS Proxy             Glue Catalog
+                                             │
+                                           Athena
+
+                              Flink / API
+                                   │
+                              EventBridge
+                                   │
+                              SQS Queue
+                             /         \
+                         Worker        DLQ
+                           │
+                       SNS / SES
+
+
+
+产品功能需求
+
+ID	功能	验收要求
+FR-001	用户注册	Cognito 注册
+FR-002	用户登录	JWT/OAuth2
+FR-003	MFA	支持 MFA
+FR-004	行情采集	实时接收行情
+FR-005	股票搜索	Symbol/公司查询
+FR-006	实时报价	最新价格展示
+FR-007	K线	1m/5m/15m/1h/1d
+FR-008	技术指标	MA/EMA/MACD/RSI
+FR-009	投资组合	添加/删除/编辑持仓
+FR-010	盈亏	Realized / Unrealized P&L
+FR-011	风险指标	Beta/VaR/Volatility/Drawdown
+FR-012	自选股	Watchlist
+FR-013	价格告警	> / < threshold
+FR-014	波动告警	volatility threshold
+FR-015	风险告警	VaR/Drawdown threshold
+FR-016	邮件通知	SES
+FR-017	系统通知	SNS
+FR-018	历史查询	S3/Athena
+FR-019	管理后台	用户/告警/运行状态
+FR-020	审计	管理操作可追踪
+FR-021	数据重放	Stream replay
+FR-022	DLQ 重放	管理失败消息
+FR-023	API 限流	防止滥用
+FR-024	数据导出	CSV
+FR-025	健康检查	/health/live /health/ready
+
+
+
+RealStock Enterprise
+│
+├── 01 Requirements
+│   ├── Business Requirements
+│   ├── Functional Requirements
+│   ├── Non-functional Requirements
+│   ├── SLO / SLA
+│   ├── RPO / RTO
+│   ├── Security Requirements
+│   └── Acceptance Criteria
+│
+├── 02 Architecture
+│   ├── AWS Account
+│   ├── VPC
+│   ├── Multi-AZ
+│   ├── Route53
+│   ├── CloudFront
+│   ├── WAF
+│   ├── ALB
+│   └── Cognito
+│
+├── 03 Compute
+│   ├── Docker
+│   ├── ECR
+│   ├── ECS Cluster
+│   ├── Fargate
+│   ├── Auto Scaling
+│   └── Blue/Green
+│
+├── 04 Data
+│   ├── Aurora PostgreSQL
+│   ├── RDS Proxy
+│   ├── DynamoDB
+│   ├── ElastiCache Redis
+│   └── S3
+│
+├── 05 Real-time Streaming
+│   ├── Market Provider
+│   ├── Ingestor
+│   ├── Kinesis
+│   ├── Apache Flink
+│   ├── Window
+│   ├── Indicator
+│   └── Risk Engine
+│
+├── 06 Event Driven
+│   ├── EventBridge
+│   ├── SQS
+│   ├── Retry
+│   ├── DLQ
+│   ├── Idempotency
+│   └── SNS / SES
+│
+├── 07 Security
+│   ├── IAM
+│   ├── STS
+│   ├── OIDC
+│   ├── KMS
+│   ├── Secrets Manager
+│   ├── Security Group
+│   ├── WAF
+│   ├── GuardDuty
+│   ├── Config
+│   └── CloudTrail
+│
+├── 08 Observability
+│   ├── CloudWatch Metrics
+│   ├── Logs
+│   ├── Alarms
+│   ├── Dashboard
+│   ├── X-Ray
+│   ├── Trace ID
+│   └── SNS Alarm
+│
+├── 09 IaC
+│   ├── Terraform
+│   ├── Modules
+│   ├── Remote State
+│   ├── dev
+│   ├── staging
+│   └── prod
+│
+├── 10 CI/CD
+│   ├── GitHub Actions
+│   ├── OIDC
+│   ├── Test
+│   ├── Build
+│   ├── ECR
+│   ├── Deploy
+│   └── Rollback
+│
+├── 11 Testing
+│   ├── Unit
+│   ├── Integration
+│   ├── Contract
+│   ├── Smoke
+│   ├── Load
+│   ├── Failure
+│   └── Restore
+│
+└── 12 Operations
+    ├── Backup
+    ├── Disaster Recovery
+    ├── Runbook
+    ├── Incident
+    ├── Cost
+    ├── Capacity
+    └── FinOps
+
+
+
+12个阶段
+
+阶段	 内容	            最终成果
+ 0	  项目初始化	 Git + AWS + Terraform
+ 1	  产品需求	     BRD/SRS/NFR
+ 2	  架构设计	     HLD/ADR/Threat Model
+ 3	  本地应用	     FastAPI + PostgreSQL + Redis
+ 4	  AWS 网络	     VPC/Subnet/NAT/Endpoint
+ 5	  数据层	     Aurora/Redis/DynamoDB/S3
+ 6	  ECS	        ECR/ALB/Fargate
+ 7	  实时流	     Kinesis/Flink
+ 8	  事件系统	     EventBridge/SQS/SNS
+ 9	  安全	         IAM/KMS/WAF/GuardDuty
+ 10	  Observability	  Logs/Metrics/Trace/Alarm
+ 11	  CI/CD	GitHub   Actions/OIDC/BlueGreen
+ 12	  Production	  Load Test/DR/Runbook/Interview
+
+
+
+ 测试流程
+
+1. 展示 Architecture
+             ↓
+2. Terraform 创建环境
+             ↓
+3. GitHub Actions 部署
+             ↓
+4. 打开 RealStock
+             ↓
+5. 实时股票价格进入
+             ↓
+6. Kinesis 接收到 Event
+             ↓
+7. Flink 计算波动率
+             ↓
+8. 人为制造异常价格
+             ↓
+9. EventBridge 产生风险事件
+             ↓
+10. SQS Worker 消费
+             ↓
+11. 收到 SNS / Email
+             ↓
+12. CloudWatch Dashboard 查看指标
+             ↓
+13. X-Ray 查看 Trace
+             ↓
+14. kill 一个 ECS Task
+             ↓
+15. ECS 自动恢复
+             ↓
+16. 发布 V2
+             ↓
+17. Blue/Green
+             ↓
+18. 模拟失败
+             ↓
+19. Rollback
+
+
+
+可迁移
+
+1.环境迁移 dev → staging → prod 使用Terraform
+
+2.AWS Account 迁移 Account ID ; Subnet ID ; VPC ID ; Security Group ID ; ARN
+
+3.Region 迁移 ap-northeast-1 → ap-southeast-1 可重建主要基础设施
+
+4.应用迁移 通过 Adapter 层隔离AWS云专用服务 并保证应用自身:Docker FastAPI PostgreSQL Redis Rest OpenAPI 保持相对云无关
+
+
+
+github仓库结构
+
+realstock-enterprise/
+│
+├── README.md
+├── Makefile
+├── docker-compose.yml
+│
+├── docs/
+│   ├── requirements/
+│   ├── architecture/
+│   ├── adr/
+│   ├── api/
+│   ├── security/
+│   ├── runbooks/
+│   ├── disaster-recovery/
+│   └── interview/
+│
+├── frontend/
+│   └── web/
+│
+├── services/
+│   ├── api/
+│   ├── market-ingestor/
+│   ├── alert-worker/
+│   └── risk-worker/
+│
+├── flink/
+│   └── risk-engine/
+│
+├── libs/
+│   ├── domain/
+│   ├── events/
+│   └── observability/
+│
+├── database/
+│   ├── migrations/
+│   └── seeds/
+│
+├── infra/
+│   └── terraform/
+│       ├── bootstrap/
+│       ├── modules/
+│       │   ├── vpc/
+│       │   ├── security/
+│       │   ├── alb/
+│       │   ├── ecs/
+│       │   ├── ecr/
+│       │   ├── aurora/
+│       │   ├── redis/
+│       │   ├── dynamodb/
+│       │   ├── kinesis/
+│       │   ├── flink/
+│       │   ├── eventbridge/
+│       │   ├── sqs/
+│       │   ├── s3/
+│       │   ├── cloudfront/
+│       │   ├── waf/
+│       │   └── observability/
+│       │
+│       └── environments/
+│           ├── dev/
+│           ├── staging/
+│           └── prod/
+│
+├── tests/
+│   ├── integration/
+│   ├── performance/
+│   └── smoke/
+│
+└── .github/
+    └── workflows/
+        ├── ci.yml
+        ├── infrastructure.yml
+        ├── deploy-dev.yml
+        ├── deploy-staging.yml
+        └── deploy-prod.yml

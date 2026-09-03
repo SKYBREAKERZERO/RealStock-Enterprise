@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "realstock-enterprise"
+version = "0.1.0"
+description = "Enterprise-grade real-time stock market data and risk monitoring platform."
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    "boto3>=1.43,<2",
+    "pydantic>=2.13,<3",
+    "pydantic-settings>=2.15,<3",
+
+    "SQLAlchemy>=2.0,<3",
+    "psycopg[binary]>=3.3,<4",
+
+    "redis>=7,<8",
+
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+]
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "httpx>=0.28,<1",
+    "ruff>=0.12,<1",
+    "mypy>=1.17,<2",
+]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+    "unit: tests that do not require external infrastructure",
+    "integration: tests that require local infrastructure",
+]
+
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+]
+
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+no_implicit_optional = true

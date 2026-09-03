@@ -1,0 +1,172 @@
+name: realstock-enterprise
+
+services:
+
+  # ============================================================
+  # LocalStack
+  # ============================================================
+  # Local AWS development environment.
+  #
+  # Planned services:
+  # - S3
+  # - DynamoDB
+  # - Kinesis
+  # - EventBridge
+  # - SQS
+  # - SNS
+  # - Secrets Manager
+  # - KMS
+  # ============================================================
+  localstack:
+    image: localstack/localstack:2026.7.1
+    container_name: realstock-localstack
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:4566:4566"
+
+    environment:
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+
+      # LocalStack authentication.
+      # Real token must exist only in .env.
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
+
+      # Persist LocalStack state between container restarts.
+      PERSISTENCE: "1"
+
+      DEBUG: "0"
+
+    volumes:
+      - localstack-data:/var/lib/localstack
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:4566/_localstack/health"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    networks:
+      - realstock-local
+
+
+  # ============================================================
+  # PostgreSQL
+  # ============================================================
+  # Local development replacement for Aurora PostgreSQL.
+  #
+  # Windows host:
+  #   127.0.0.1:15432
+  #
+  # Docker internal:
+  #   postgres:5432
+  #
+  # Host port 5432 is intentionally NOT used because another
+  # PostgreSQL instance already occupies that port.
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: realstock-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-realstock}
+      POSTGRES_USER: ${POSTGRES_USER:-realstock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-realstock_local_password}
+
+    ports:
+      - "127.0.0.1:15432:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-realstock} -d ${POSTGRES_DB:-realstock}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+    networks:
+      - realstock-local
+
+
+  # ============================================================
+  # Redis
+  # ============================================================
+  # Local development replacement for Amazon ElastiCache.
+  #
+  # Responsibilities:
+  # - API cache
+  # - Market data cache
+  # - Rate limiting
+  # - Temporary distributed state
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: realstock-redis
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec"
+      ]
+
+    volumes:
+      - redis-data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+    networks:
+      - realstock-local
+
+
+# ==============================================================
+# Networks
+# ==============================================================
+networks:
+  realstock-local:
+    name: realstock-local
+    driver: bridge
+
+
+# ==============================================================
+# Persistent Volumes
+# ==============================================================
+volumes:
+  localstack-data:
+    name: realstock-localstack-data
+
+  postgres-data:
+    name: realstock-postgres-data
+
+  redis-data:
+    name: realstock-redis-data
