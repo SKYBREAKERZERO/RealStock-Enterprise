@@ -15,17 +15,24 @@ from libs.domain.portfolio import Portfolio
 from services.api.dependencies import (
     get_current_user_id,
     get_portfolio_service,
+    get_portfolio_valuation_service,
 )
 from services.api.portfolio.service import (
     PortfolioNotFoundError,
     PortfolioService,
     PositionAlreadyExistsError,
 )
+from services.api.portfolio.valuation import (
+    PortfolioValuationService,
+)
 from services.api.schemas.portfolio import (
     CreatePortfolioRequest,
     CreatePositionRequest,
     PortfolioResponse,
     PositionResponse,
+)
+from services.api.schemas.valuation import (
+    PortfolioValuationResponse,
 )
 
 
@@ -34,6 +41,10 @@ router = APIRouter(
     tags=["portfolios"],
 )
 
+
+# ============================================================
+# Dependencies
+# ============================================================
 
 CurrentUserId = Annotated[
     str,
@@ -45,6 +56,15 @@ PortfolioServiceDependency = Annotated[
     Depends(get_portfolio_service),
 ]
 
+PortfolioValuationServiceDependency = Annotated[
+    PortfolioValuationService,
+    Depends(get_portfolio_valuation_service),
+]
+
+
+# ============================================================
+# Ownership
+# ============================================================
 
 def get_owned_portfolio(
     *,
@@ -81,6 +101,10 @@ def get_owned_portfolio(
 
     return portfolio
 
+
+# ============================================================
+# Portfolio
+# ============================================================
 
 @router.post(
     "",
@@ -142,6 +166,49 @@ def get_portfolio(
         portfolio
     )
 
+
+# ============================================================
+# Portfolio Valuation
+# ============================================================
+
+@router.get(
+    "/{portfolio_id}/valuation",
+    response_model=PortfolioValuationResponse,
+)
+def get_portfolio_valuation(
+    portfolio_id: UUID,
+    user_id: CurrentUserId,
+    portfolio_service: PortfolioServiceDependency,
+    valuation_service: PortfolioValuationServiceDependency,
+) -> PortfolioValuationResponse:
+    """
+    Calculate the current portfolio valuation.
+
+    Portfolio state comes from PostgreSQL.
+    Latest market quotes come from Redis.
+
+    Missing quotes are represented explicitly rather than being
+    interpreted as a zero market price.
+    """
+
+    portfolio = get_owned_portfolio(
+        service=portfolio_service,
+        portfolio_id=portfolio_id,
+        user_id=user_id,
+    )
+
+    valuation = valuation_service.value_portfolio(
+        portfolio=portfolio,
+    )
+
+    return PortfolioValuationResponse.from_domain(
+        valuation
+    )
+
+
+# ============================================================
+# Positions
+# ============================================================
 
 @router.post(
     "/{portfolio_id}/positions",

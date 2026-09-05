@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from uuid import uuid4
+
 import pytest
 
 from libs.cache import get_redis_client
@@ -5,36 +9,61 @@ from libs.cache import get_redis_client
 
 pytestmark = pytest.mark.integration
 
-TEST_KEY = "realstock:test:pytest"
-
 
 def test_redis_ping() -> None:
-    client = get_redis_client()
+    """
+    Verify that the application can connect to Redis.
+    """
 
-    assert client.ping() is True
+    redis_client = get_redis_client()
+
+    assert redis_client.ping() is True
 
 
-def test_redis_set_get_delete() -> None:
-    client = get_redis_client()
+def test_redis_set_get_delete_round_trip() -> None:
+    """
+    Verify basic Redis write/read/delete behavior.
+
+    A unique key is used so parallel or repeated test runs
+    do not interfere with each other.
+    """
+
+    redis_client = get_redis_client()
+
+    key = (
+        "realstock:test:"
+        f"{uuid4()}"
+    )
+
+    value = "redis-integration-pass"
 
     try:
-        result = client.set(
-            TEST_KEY,
-            "pytest-pass",
-            ex=60,
+        result = redis_client.set(
+            key,
+            value,
+            ex=30,
         )
 
         assert result is True
 
-        value = client.get(TEST_KEY)
+        stored_value = redis_client.get(
+            key
+        )
 
-        assert value == "pytest-pass"
+        assert stored_value == value
 
-        ttl = client.ttl(TEST_KEY)
+        ttl = redis_client.ttl(
+            key
+        )
 
-        assert ttl > 0
+        assert 0 < ttl <= 30
 
     finally:
-        client.delete(TEST_KEY)
+        redis_client.delete(
+            key
+        )
 
-    assert client.get(TEST_KEY) is None
+    assert (
+        redis_client.get(key)
+        is None
+    )

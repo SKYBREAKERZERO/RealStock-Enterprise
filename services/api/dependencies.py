@@ -14,6 +14,9 @@ from libs.database import get_db_session
 from services.api.portfolio.service import (
     PortfolioService,
 )
+from services.api.portfolio.valuation import (
+    PortfolioValuationService,
+)
 
 
 def get_current_user_id(
@@ -64,3 +67,7 @@ def get_portfolio_service(
     return PortfolioService(
         session
     )
+
+def get_portfolio_valuation_service(
+) -> PortfolioValuationService:
+    return PortfolioValuationService()
