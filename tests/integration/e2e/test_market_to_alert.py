@@ -47,6 +47,7 @@ from services.risk_engine import (
     RiskEngineService,
 )
 
+
 pytestmark = pytest.mark.integration
 
 
@@ -207,11 +208,14 @@ def receive_notification(
 
 def test_market_event_to_risk_notification_full_pipeline() -> None:
     kinesis = get_kinesis_client()
+
     eventbridge = (
         get_eventbridge_client()
     )
+
     sqs = get_sqs_client()
     sns = get_sns_client()
+
     dynamodb = (
         get_dynamodb_client()
     )
@@ -724,6 +728,7 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
 
         # Successful processing must ACK
         # the inbound SQS message.
+
         inbound_after = (
             sqs.receive_message(
                 QueueUrl=(
@@ -770,7 +775,9 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
         )
 
         notification = json.loads(
-            notification_message["Body"]
+            notification_message[
+                "Body"
+            ]
         )
 
         assert (
@@ -898,12 +905,13 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
             latest_quote.timestamp
             == (
                 BASE_TIME
-                + timedelta(seconds=2)
+                + timedelta(
+                    seconds=2
+                )
             )
         )
 
         # ==================================================
-        # PHASE 5
         # Kinesis replay semantics
         #
         # Simulate at-least-once reprocessing of the exact
@@ -921,7 +929,8 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
         assert (
             replay_result.market_event_id
             == str(
-                second_market_event.event_id
+                second_market_event
+                .event_id
             )
         )
 
@@ -936,7 +945,8 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
         )
 
         assert (
-            replay_result.eventbridge_event_id
+            replay_result
+            .eventbridge_event_id
             is None
         )
 
@@ -951,7 +961,10 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
             )
         )
 
-        assert state_after_replay is not None
+        assert (
+            state_after_replay
+            is not None
+        )
 
         assert (
             state_after_replay.mid_price
@@ -962,7 +975,9 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
             state_after_replay.timestamp
             == (
                 BASE_TIME
-                + timedelta(seconds=2)
+                + timedelta(
+                    seconds=2
+                )
             )
         )
 
@@ -1012,7 +1027,8 @@ def test_market_event_to_risk_notification_full_pipeline() -> None:
         # ==================================================
 
         replay_status = (
-            idempotency_store.get_status(
+            idempotency_store
+            .get_status(
                 event_id=risk_event_id
             )
         )

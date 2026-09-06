@@ -1,4 +1,5 @@
 from libs.aws.clients import (
+    get_cloudwatch_client,
     get_dynamodb_client,
     get_eventbridge_client,
     get_kinesis_client,
@@ -13,6 +14,7 @@ from libs.aws.session import get_aws_session
 
 __all__ = [
     "get_aws_session",
+    "get_cloudwatch_client",
     "get_sts_client",
     "get_s3_client",
     "get_dynamodb_client",

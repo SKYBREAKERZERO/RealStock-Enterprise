@@ -9,7 +9,6 @@ from botocore.config import Config
 from libs.aws.session import get_aws_session
 from libs.config import get_settings
 
-
 AWS_CLIENT_CONFIG = Config(
     retries={
         "max_attempts": 3,
@@ -91,3 +90,7 @@ def get_secretsmanager_client() -> BaseClient:
 @lru_cache(maxsize=1)
 def get_kms_client() -> BaseClient:
     return _create_client("kms")
+
+@lru_cache(maxsize=1)
+def get_cloudwatch_client() -> BaseClient:
+    return _create_client("cloudwatch")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import (
     UTC,
     datetime,
@@ -17,13 +18,29 @@ DEFAULT_SERVICE_NAME = (
 )
 
 
+RESERVED_LOG_FIELDS = frozenset(
+    {
+        "timestamp",
+        "level",
+        "logger",
+        "service",
+        "environment",
+        "message",
+        "correlation_id",
+        "event_id",
+        "causation_id",
+        "exception",
+    }
+)
+
+
 class JsonLogFormatter(
     logging.Formatter
 ):
     """
     CloudWatch-friendly structured JSON formatter.
 
-    Logs are emitted to stdout/stderr and can later be
+    Logs are emitted as single-line JSON and can later be
     collected by ECS awslogs, FireLens, Fluent Bit,
     OpenTelemetry Collector, or other log pipelines.
     """
@@ -132,9 +149,16 @@ class JsonLogFormatter(
             extra_fields,
             dict,
         ):
-            payload.update(
-                extra_fields
-            )
+            for key, value in (
+                extra_fields.items()
+            ):
+                if (
+                    key
+                    in RESERVED_LOG_FIELDS
+                ):
+                    continue
+
+                payload[key] = value
 
         return json.dumps(
             payload,
@@ -146,12 +170,14 @@ class JsonLogFormatter(
 
 def configure_json_logging(
     *,
-    service_name: str,
+    service_name: str = (
+        DEFAULT_SERVICE_NAME
+    ),
     environment: str = "local",
     level: int = logging.INFO,
 ) -> None:
-    handler = (
-        logging.StreamHandler()
+    handler = logging.StreamHandler(
+        sys.stdout
     )
 
     handler.setFormatter(

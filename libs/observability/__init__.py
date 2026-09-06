@@ -1,3 +1,7 @@
+from libs.observability.cloudwatch import (
+    DEFAULT_METRIC_NAMESPACE,
+    CloudWatchMetricSink,
+)
 from libs.observability.context import (
     ObservabilityContext,
     bind_observability_context,
@@ -17,10 +21,13 @@ from libs.observability.metrics import (
     MetricsRecorder,
     MetricUnit,
     NoopMetricSink,
+    ResilientMetricSink,
 )
 
 __all__ = [
+    "DEFAULT_METRIC_NAMESPACE",
     "DEFAULT_SERVICE_NAME",
+    "CloudWatchMetricSink",
     "InMemoryMetricSink",
     "JsonLogFormatter",
     "MetricPoint",
@@ -29,6 +36,7 @@ __all__ = [
     "MetricsRecorder",
     "NoopMetricSink",
     "ObservabilityContext",
+    "ResilientMetricSink",
     "bind_observability_context",
     "configure_json_logging",
     "get_logger",

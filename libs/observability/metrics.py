@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import (
     Iterator,
     Mapping,
@@ -26,6 +27,14 @@ class MetricUnit(StrEnum):
     slots=True,
 )
 class MetricPoint:
+    """
+    Vendor-neutral application metric.
+
+    Business services emit MetricPoint objects without
+    depending directly on CloudWatch, Prometheus,
+    OpenTelemetry, or another monitoring backend.
+    """
+
     name: str
     value: float
     unit: MetricUnit
@@ -35,14 +44,16 @@ class MetricPoint:
 
 class MetricSink(Protocol):
     """
-    Backend contract for metrics delivery.
+    Backend contract for metric delivery.
 
-    Implementations may later write to:
-    - CloudWatch PutMetricData
-    - EMF
+    Implementations may write to:
+
+    - AWS CloudWatch PutMetricData
+    - CloudWatch Embedded Metric Format
     - OpenTelemetry
     - Prometheus
     - an in-memory test sink
+    - a no-op sink
     """
 
     def emit(
@@ -52,13 +63,79 @@ class MetricSink(Protocol):
         ...
 
 
+class ResilientMetricSink:
+    """
+    Best-effort metric delivery wrapper.
+
+    Telemetry backend failures are logged but are never
+    propagated into the application business path.
+
+    This prevents monitoring failures from changing
+    business semantics such as:
+
+    - SQS ACK / NO-ACK behavior
+    - retry decisions
+    - idempotency ownership
+    - notification delivery
+    - risk processing
+
+    Example production composition:
+
+        MetricsRecorder
+            ↓
+        ResilientMetricSink
+            ↓
+        CloudWatchMetricSink
+            ↓
+        AWS CloudWatch
+    """
+
+    def __init__(
+        self,
+        *,
+        sink: MetricSink,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._sink = sink
+
+        self._logger = (
+            logger
+            if logger is not None
+            else logging.getLogger(
+                __name__
+            )
+        )
+
+    def emit(
+        self,
+        metric: MetricPoint,
+    ) -> None:
+        try:
+            self._sink.emit(
+                metric
+            )
+
+        except Exception:
+            self._logger.exception(
+                "metric emission failed",
+                extra={
+                    "structured_fields": {
+                        "metric_name":
+                            metric.name,
+                        "metric_unit":
+                            metric.unit.value,
+                    }
+                },
+            )
+
+
 class NoopMetricSink:
     """
-    Production-safe default when metrics are not configured.
+    Safe default when metrics are not configured.
 
     This keeps observability optional at application
-    construction boundaries and avoids coupling business
-    services to a concrete monitoring backend.
+    construction boundaries and prevents business services
+    from depending on a concrete monitoring backend.
     """
 
     def emit(
@@ -70,11 +147,13 @@ class NoopMetricSink:
 
 class InMemoryMetricSink:
     """
-    Deterministic metric sink used by unit and integration
-    tests.
+    Deterministic thread-safe metric sink used by unit and
+    integration tests.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+    ) -> None:
         self._metrics: list[
             MetricPoint
         ] = []
@@ -94,12 +173,18 @@ class InMemoryMetricSink:
     def metrics(
         self,
     ) -> tuple[MetricPoint, ...]:
+        """
+        Return an immutable snapshot of recorded metrics.
+        """
+
         with self._lock:
             return tuple(
                 self._metrics
             )
 
-    def clear(self) -> None:
+    def clear(
+        self,
+    ) -> None:
         with self._lock:
             self._metrics.clear()
 
@@ -108,8 +193,23 @@ class MetricsRecorder:
     """
     Application-facing metric recorder.
 
-    Business and transport services depend on this class,
-    not on CloudWatch or another vendor-specific API.
+    Business and transport services depend on this class
+    rather than on CloudWatch or another vendor-specific
+    monitoring API.
+
+    Responsibilities:
+
+    - normalize metric names
+    - normalize dimensions
+    - merge default and call-level dimensions
+    - create UTC timestamps
+    - create MetricPoint objects
+    - record counters
+    - record millisecond latency
+    - provide timer scopes
+
+    Backend reliability belongs to MetricSink
+    implementations such as ResilientMetricSink.
     """
 
     def __init__(
@@ -169,18 +269,14 @@ class MetricsRecorder:
 
             if not normalized_key:
                 raise ValueError(
-
-                        "metric dimension name "
-                        "must not be empty"
-
+                    "metric dimension name "
+                    "must not be empty"
                 )
 
             if not normalized_value:
                 raise ValueError(
-
-                        "metric dimension value "
-                        "must not be empty"
-
+                    "metric dimension value "
+                    "must not be empty"
                 )
 
             result[
@@ -195,6 +291,14 @@ class MetricsRecorder:
             Mapping[str, str] | None
         ),
     ) -> dict[str, str]:
+        """
+        Return a new dictionary.
+
+        Call-level dimensions override defaults without
+        mutating either caller-owned dictionaries or the
+        recorder's default dimensions.
+        """
+
         merged = dict(
             self._default_dimensions
         )
@@ -225,7 +329,9 @@ class MetricsRecorder:
 
         metric = MetricPoint(
             name=metric_name,
-            value=float(value),
+            value=float(
+                value
+            ),
             unit=unit,
             dimensions=(
                 self._merge_dimensions(
@@ -252,6 +358,12 @@ class MetricsRecorder:
             Mapping[str, str] | None
         ) = None,
     ) -> None:
+        """
+        Record a Count metric.
+
+        The default increment value is 1.
+        """
+
         self.record(
             name,
             value,
@@ -286,6 +398,17 @@ class MetricsRecorder:
             Mapping[str, str] | None
         ) = None,
     ) -> Iterator[None]:
+        """
+        Record elapsed wall-clock duration in milliseconds.
+
+        The latency metric is emitted even when the wrapped
+        business operation raises an exception.
+
+        When used with ResilientMetricSink, a telemetry
+        backend failure cannot replace or hide the original
+        business exception.
+        """
+
         start = perf_counter()
 
         try:

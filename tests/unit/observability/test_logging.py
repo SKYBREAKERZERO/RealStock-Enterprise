@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
+from datetime import datetime
 
 import pytest
 
@@ -180,3 +182,145 @@ def test_invalid_environment_is_rejected() -> None:
             service_name="risk-engine",
             environment=" ",
         )
+
+def test_structured_fields_cannot_override_reserved_fields() -> None:
+    formatter = JsonLogFormatter(
+        service_name="risk-engine",
+        environment="local",
+    )
+
+    record = build_record(
+        message="real message"
+    )
+
+    record.structured_fields = {
+        "service": "fake-service",
+        "environment": "fake",
+        "level": "DEBUG",
+        "message": "fake message",
+        "correlation_id":
+            "fake-correlation",
+        "event_id": "fake-event",
+        "causation_id": "fake-cause",
+        "symbol": "AAPL",
+    }
+
+    with bind_observability_context(
+        correlation_id="corr-001",
+        event_id="event-001",
+        causation_id="cause-001",
+    ):
+        payload = json.loads(
+            formatter.format(
+                record
+            )
+        )
+
+    assert (
+        payload["service"]
+        == "risk-engine"
+    )
+
+    assert (
+        payload["environment"]
+        == "local"
+    )
+
+    assert (
+        payload["level"]
+        == "INFO"
+    )
+
+    assert (
+        payload["message"]
+        == "real message"
+    )
+
+    assert (
+        payload["correlation_id"]
+        == "corr-001"
+    )
+
+    assert (
+        payload["event_id"]
+        == "event-001"
+    )
+
+    assert (
+        payload["causation_id"]
+        == "cause-001"
+    )
+
+    assert (
+        payload["symbol"]
+        == "AAPL"
+    )
+def test_json_formatter_includes_exception() -> None:
+    formatter = JsonLogFormatter(
+        service_name="risk-engine",
+    )
+
+    try:
+        raise RuntimeError(
+            "risk engine failed"
+        )
+    except RuntimeError:
+        record = logging.LogRecord(
+            name="realstock.test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="processing failed",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+
+    payload = json.loads(
+        formatter.format(record)
+    )
+
+    assert payload["level"] == "ERROR"
+    assert "RuntimeError" in payload["exception"]
+    assert "risk engine failed" in payload["exception"]
+
+
+def test_json_formatter_preserves_unicode() -> None:
+    formatter = JsonLogFormatter(
+        service_name="risk-engine",
+    )
+
+    payload_text = formatter.format(
+        build_record(
+            message="风险告警発生"
+        )
+    )
+
+    payload = json.loads(
+        payload_text
+    )
+
+    assert payload["message"] == "风险告警発生"
+    assert "风险告警発生" in payload_text
+
+
+def test_json_formatter_timestamp_is_utc() -> None:
+    formatter = JsonLogFormatter(
+        service_name="risk-engine",
+    )
+
+    payload = json.loads(
+        formatter.format(
+            build_record()
+        )
+    )
+
+    timestamp = datetime.fromisoformat(
+        payload["timestamp"]
+    )
+
+    assert timestamp.tzinfo is not None
+    assert (
+        timestamp.utcoffset()
+        .total_seconds()
+        == 0
+    )
