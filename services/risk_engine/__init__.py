@@ -1,3 +1,8 @@
+from services.risk_engine.consumer import (
+    InvalidKinesisMarketEventError,
+    KinesisRiskEngineConsumer,
+    KinesisRiskProcessingResult,
+)
 from services.risk_engine.publisher import (
     DEFAULT_EVENT_BUS_NAME,
     EVENTBRIDGE_RISK_SOURCE,
@@ -20,4 +25,7 @@ __all__ = [
     "InMemoryQuoteStateStore",
     "QuoteStateStore",
     "RiskEngineService",
+        "InvalidKinesisMarketEventError",
+        "KinesisRiskEngineConsumer",
+        "KinesisRiskProcessingResult",
 ]
