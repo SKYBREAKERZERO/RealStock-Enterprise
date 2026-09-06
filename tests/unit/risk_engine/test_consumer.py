@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock
@@ -12,6 +13,11 @@ from libs.domain.market import (
 )
 from libs.events import (
     create_market_quote_event,
+)
+from libs.observability import (
+    InMemoryMetricSink,
+    MetricsRecorder,
+    MetricUnit,
 )
 from services.risk_engine import (
     EventBridgePublishResult,
@@ -277,3 +283,511 @@ def test_eventbridge_failure_propagates() -> None:
                 )
             )
         )
+def test_processing_logs_market_event_context(
+    caplog,
+) -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+    )
+
+    event = build_quote_event(
+        price=Decimal("100"),
+        seconds=1,
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger=(
+            "realstock."
+            "risk_engine.consumer"
+        ),
+    ):
+        consumer.process_record(
+            build_record(event)
+        )
+
+    received_record = next(
+        record
+        for record in caplog.records
+        if (
+            record.getMessage()
+            == "market event received"
+        )
+    )
+
+    fields = received_record.structured_fields
+
+    assert (
+        fields["event_type"]
+        == event.event_type
+    )
+
+
+def test_risk_alert_log_contains_business_fields(
+    caplog,
+) -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    publisher.publish.return_value = (
+        EventBridgePublishResult(
+            event_id="eventbridge-001"
+        )
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+    )
+
+    consumer.process_record(
+        build_record(
+            build_quote_event(
+                price=Decimal("100"),
+                seconds=1,
+            )
+        )
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "realstock."
+            "risk_engine.consumer"
+        ),
+    ):
+        consumer.process_record(
+            build_record(
+                build_quote_event(
+                    price=Decimal("94"),
+                    seconds=2,
+                )
+            )
+        )
+
+    risk_record = next(
+        record
+        for record in caplog.records
+        if (
+            record.getMessage()
+            == "risk alert generated"
+        )
+    )
+
+    fields = risk_record.structured_fields
+
+    assert (
+        fields["severity"]
+        == "CRITICAL"
+    )
+
+    assert (
+        fields["risk_type"]
+        == "PRICE_MOVE_PERCENT"
+    )
+
+    assert (
+        fields["market"]
+        == "US"
+    )
+
+    assert (
+        fields["symbol"]
+        == "AAPL"
+    )
+
+    assert (
+        Decimal(
+            fields[
+                "observed_value"
+            ]
+        )
+        == Decimal("-6")
+    )
+
+    assert (
+        Decimal(
+            fields["threshold"]
+        )
+        == Decimal("5")
+    )
+
+
+def test_eventbridge_failure_is_logged(
+    caplog,
+) -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    publisher.publish.side_effect = (
+        RuntimeError(
+            "EventBridge unavailable"
+        )
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+    )
+
+    consumer.process_record(
+        build_record(
+            build_quote_event(
+                price=Decimal("100"),
+                seconds=1,
+            )
+        )
+    )
+
+    with caplog.at_level(
+        logging.ERROR,
+        logger=(
+            "realstock."
+            "risk_engine.consumer"
+        ),
+    ):
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                "EventBridge unavailable"
+            ),
+        ):
+            consumer.process_record(
+                build_record(
+                    build_quote_event(
+                        price=Decimal("94"),
+                        seconds=2,
+                    )
+                )
+            )
+
+    error_record = next(
+        record
+        for record in caplog.records
+        if (
+            record.getMessage()
+            == "risk event processing failed"
+        )
+    )
+
+    assert (
+        error_record.levelno
+        == logging.ERROR
+    )
+
+    assert (
+        error_record.exc_info
+        is not None
+    )
+
+    fields = error_record.structured_fields
+
+    assert (
+        fields["event_type"]
+        == "market.quote.received"
+    )
+def test_metrics_record_event_without_alert() -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    sink = InMemoryMetricSink()
+
+    metrics = MetricsRecorder(
+        sink=sink
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+        metrics=metrics,
+    )
+
+    event = build_quote_event(
+        price=Decimal("100"),
+        seconds=1,
+    )
+
+    consumer.process_record(
+        build_record(event)
+    )
+
+    names = [
+        metric.name
+        for metric in sink.metrics
+    ]
+
+    assert (
+        "MarketEventsProcessed"
+        in names
+    )
+
+    assert (
+        "RiskProcessingLatency"
+        in names
+    )
+
+    assert (
+        "RiskAlertsGenerated"
+        not in names
+    )
+
+    assert (
+        "RiskEventsPublished"
+        not in names
+    )
+
+    assert (
+        "RiskProcessingFailures"
+        not in names
+    )
+
+    processed = next(
+        metric
+        for metric in sink.metrics
+        if (
+            metric.name
+            == "MarketEventsProcessed"
+        )
+    )
+
+    assert (
+        processed.unit
+        == MetricUnit.COUNT
+    )
+
+    assert (
+        processed.dimensions[
+            "EventType"
+        ]
+        == event.event_type
+    )
+
+
+def test_metrics_record_generated_and_published_alert() -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    publisher.publish.return_value = (
+        EventBridgePublishResult(
+            event_id="eventbridge-001"
+        )
+    )
+
+    sink = InMemoryMetricSink()
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+        metrics=MetricsRecorder(
+            sink=sink
+        ),
+    )
+
+    consumer.process_record(
+        build_record(
+            build_quote_event(
+                price=Decimal("100"),
+                seconds=1,
+            )
+        )
+    )
+
+    sink.clear()
+
+    consumer.process_record(
+        build_record(
+            build_quote_event(
+                price=Decimal("94"),
+                seconds=2,
+            )
+        )
+    )
+
+    generated = next(
+        metric
+        for metric in sink.metrics
+        if (
+            metric.name
+            == "RiskAlertsGenerated"
+        )
+    )
+
+    published = next(
+        metric
+        for metric in sink.metrics
+        if (
+            metric.name
+            == "RiskEventsPublished"
+        )
+    )
+
+    assert (
+        generated.value
+        == 1.0
+    )
+
+    assert (
+        generated.dimensions
+        == {
+            "Severity": "CRITICAL",
+            "Market": "US",
+        }
+    )
+
+    assert (
+        published.value
+        == 1.0
+    )
+
+    assert (
+        published.dimensions
+        == {
+            "Severity": "CRITICAL",
+            "Market": "US",
+        }
+    )
+
+
+def test_metrics_record_processing_failure() -> None:
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    publisher.publish.side_effect = (
+        RuntimeError(
+            "EventBridge unavailable"
+        )
+    )
+
+    sink = InMemoryMetricSink()
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+        metrics=MetricsRecorder(
+            sink=sink
+        ),
+    )
+
+    consumer.process_record(
+        build_record(
+            build_quote_event(
+                price=Decimal("100"),
+                seconds=1,
+            )
+        )
+    )
+
+    sink.clear()
+
+    with pytest.raises(
+        RuntimeError,
+        match="EventBridge unavailable",
+    ):
+        consumer.process_record(
+            build_record(
+                build_quote_event(
+                    price=Decimal("94"),
+                    seconds=2,
+                )
+            )
+        )
+
+    names = [
+        metric.name
+        for metric in sink.metrics
+    ]
+
+    assert (
+        "RiskAlertsGenerated"
+        in names
+    )
+
+    assert (
+        "RiskEventsPublished"
+        not in names
+    )
+
+    assert (
+        "RiskProcessingFailures"
+        in names
+    )
+
+    assert (
+        "RiskProcessingLatency"
+        in names
+    )
+
+
+def test_invalid_record_records_failure_and_latency() -> None:
+    sink = InMemoryMetricSink()
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=Mock(),
+        publisher=Mock(),
+        metrics=MetricsRecorder(
+            sink=sink
+        ),
+    )
+
+    with pytest.raises(
+        InvalidKinesisMarketEventError,
+    ):
+        consumer.process_record(
+            {
+                "Data": b"{broken-json",
+            }
+        )
+
+    names = [
+        metric.name
+        for metric in sink.metrics
+    ]
+
+    assert (
+        "RiskProcessingFailures"
+        in names
+    )
+
+    assert (
+        "RiskProcessingLatency"
+        in names
+    )
+
+    assert (
+        "MarketEventsProcessed"
+        not in names
+    )
