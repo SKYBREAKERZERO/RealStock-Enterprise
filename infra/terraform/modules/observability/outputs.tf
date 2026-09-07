@@ -87,3 +87,24 @@ output "alert_dlq_alarm_name" {
     null
   )
 }
+
+output "operations_dashboard_name" {
+  description = "Name of the RealStock CloudWatch operations dashboard."
+
+  value = (
+    aws_cloudwatch_dashboard
+    .operations
+    .dashboard_name
+  )
+}
+
+
+output "operations_dashboard_arn" {
+  description = "ARN of the RealStock CloudWatch operations dashboard."
+
+  value = (
+    aws_cloudwatch_dashboard
+    .operations
+    .dashboard_arn
+  )
+}
