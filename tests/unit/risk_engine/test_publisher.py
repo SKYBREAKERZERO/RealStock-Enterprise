@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import (
     UTC,
     datetime,
@@ -8,6 +9,9 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from libs.domain.market import Market
 from libs.domain.risk import (
@@ -17,6 +21,9 @@ from libs.domain.risk import (
 )
 from libs.events import (
     create_risk_alert_event,
+)
+from libs.observability import (
+    create_tracing_runtime,
 )
 from services.risk_engine import (
     EVENTBRIDGE_RISK_SOURCE,
@@ -206,3 +213,141 @@ def test_rejects_empty_event_bus_name() -> None:
         EventBridgeRiskEventPublisher(
             event_bus_name="   "
         )
+
+def test_publish_injects_active_trace_context() -> None:
+    client = Mock()
+
+    client.put_events.return_value = {
+        "FailedEntryCount": 0,
+        "Entries": [
+            {
+                "EventId":
+                    "eventbridge-001",
+            }
+        ],
+    }
+
+    exporter = InMemorySpanExporter()
+
+    runtime = create_tracing_runtime(
+        service_name="risk-engine",
+        environment="test",
+        exporter=exporter,
+    )
+
+    publisher = (
+        EventBridgeRiskEventPublisher(
+            client=client
+        )
+    )
+
+    event = build_risk_event()
+
+    try:
+        with (
+            runtime.tracer
+            .start_as_current_span(
+                "risk.process"
+            )
+        ):
+            publisher.publish(
+                event
+            )
+
+        entry = (
+            client.put_events
+            .call_args
+            .kwargs["Entries"][0]
+        )
+
+        detail = json.loads(
+            entry["Detail"]
+        )
+
+        trace_context = detail[
+            "trace_context"
+        ]
+
+        assert (
+            "traceparent"
+            in trace_context
+        )
+
+        traceparent = (
+            trace_context[
+                "traceparent"
+            ]
+        )
+
+        assert traceparent.startswith(
+            "00-"
+        )
+
+        assert (
+            len(
+                traceparent.split(
+                    "-"
+                )[1]
+            )
+            == 32
+        )
+
+        assert (
+            len(
+                traceparent.split(
+                    "-"
+                )[2]
+            )
+            == 16
+        )
+
+        # The canonical input event is immutable and is not
+        # mutated with transport trace metadata.
+        assert (
+            event.trace_context
+            is None
+        )
+
+    finally:
+        runtime.shutdown()
+
+
+def test_publish_without_active_span_preserves_event_contract() -> None:
+    client = Mock()
+
+    client.put_events.return_value = {
+        "FailedEntryCount": 0,
+        "Entries": [
+            {
+                "EventId":
+                    "eventbridge-001",
+            }
+        ],
+    }
+
+    publisher = (
+        EventBridgeRiskEventPublisher(
+            client=client
+        )
+    )
+
+    event = build_risk_event()
+
+    publisher.publish(
+        event
+    )
+
+    entry = (
+        client.put_events
+        .call_args
+        .kwargs["Entries"][0]
+    )
+
+    detail = json.loads(
+        entry["Detail"]
+    )
+
+    assert (
+        "trace_context"
+        not in detail
+    )

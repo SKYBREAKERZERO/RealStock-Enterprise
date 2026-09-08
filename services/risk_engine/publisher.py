@@ -11,15 +11,22 @@ from libs.events import (
     RISK_ALERT_DETECTED,
     EventEnvelope,
 )
+from libs.observability.propagation import (
+    inject_trace_context,
+)
 
-DEFAULT_EVENT_BUS_NAME = "default"
+DEFAULT_EVENT_BUS_NAME = (
+    "default"
+)
 
 EVENTBRIDGE_RISK_SOURCE = (
     "realstock.risk-engine"
 )
 
 
-@dataclass(frozen=True)
+@dataclass(
+    frozen=True,
+)
 class EventBridgePublishResult:
     event_id: str
 
@@ -29,9 +36,17 @@ class EventBridgeRiskEventPublisher:
     Publish canonical RealStock risk events to
     Amazon EventBridge.
 
-    The canonical EventEnvelope is preserved inside
-    EventBridge Detail so correlation_id, causation_id,
-    schema_version, and domain payload remain intact.
+    Business event identity is preserved:
+
+        event_id
+        correlation_id
+        causation_id
+
+    When an OpenTelemetry span is active, its W3C trace
+    context is injected into an outbound copy of the event.
+
+    The caller's EventEnvelope remains immutable and is not
+    modified.
     """
 
     def __init__(
@@ -67,6 +82,24 @@ class EventBridgeRiskEventPublisher:
     ) -> str:
         return self._event_bus_name
 
+    @staticmethod
+    def _prepare_outbound_event(
+        event: EventEnvelope,
+    ) -> EventEnvelope:
+        trace_context = (
+            inject_trace_context()
+        )
+
+        if not trace_context:
+            return event
+
+        return event.model_copy(
+            update={
+                "trace_context":
+                    trace_context
+            }
+        )
+
     def publish(
         self,
         event: EventEnvelope,
@@ -80,6 +113,12 @@ class EventBridgeRiskEventPublisher:
                 "risk.alert.detected events"
             )
 
+        outbound_event = (
+            self._prepare_outbound_event(
+                event
+            )
+        )
+
         response = (
             self._client.put_events(
                 Entries=[
@@ -91,7 +130,8 @@ class EventBridgeRiskEventPublisher:
                             event.event_type
                         ),
                         "Detail": (
-                            event.to_event_json()
+                            outbound_event
+                            .to_event_json()
                         ),
                         "EventBusName": (
                             self._event_bus_name

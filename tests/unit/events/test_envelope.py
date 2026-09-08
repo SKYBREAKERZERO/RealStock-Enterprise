@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,8 +9,12 @@ from pydantic import ValidationError
 
 from libs.events.envelope import EventEnvelope
 
-
 pytestmark = pytest.mark.unit
+
+
+# =========================================================
+# Core event contract
+# =========================================================
 
 
 def test_event_envelope_can_be_created() -> None:
@@ -22,12 +26,27 @@ def test_event_envelope_can_be_created() -> None:
         },
     )
 
-    assert isinstance(event.event_id, UUID)
-    assert isinstance(event.correlation_id, UUID)
+    assert isinstance(
+        event.event_id,
+        UUID,
+    )
 
-    assert event.event_type == "market.trade.received"
+    assert isinstance(
+        event.correlation_id,
+        UUID,
+    )
+
+    assert (
+        event.event_type
+        == "market.trade.received"
+    )
+
     assert event.schema_version == 1
-    assert event.source == "market-ingestor"
+
+    assert (
+        event.source
+        == "market-ingestor"
+    )
 
     assert event.payload == {
         "symbol": "AAPL",
@@ -47,7 +66,10 @@ def test_event_id_is_unique() -> None:
         payload={},
     )
 
-    assert first.event_id != second.event_id
+    assert (
+        first.event_id
+        != second.event_id
+    )
 
 
 def test_correlation_id_is_unique_by_default() -> None:
@@ -63,7 +85,10 @@ def test_correlation_id_is_unique_by_default() -> None:
         payload={},
     )
 
-    assert first.correlation_id != second.correlation_id
+    assert (
+        first.correlation_id
+        != second.correlation_id
+    )
 
 
 def test_explicit_correlation_id_is_preserved() -> None:
@@ -76,7 +101,10 @@ def test_explicit_correlation_id_is_preserved() -> None:
         payload={},
     )
 
-    assert event.correlation_id == correlation_id
+    assert (
+        event.correlation_id
+        == correlation_id
+    )
 
 
 def test_causation_id_can_be_provided() -> None:
@@ -89,7 +117,15 @@ def test_causation_id_can_be_provided() -> None:
         payload={},
     )
 
-    assert event.causation_id == causation_id
+    assert (
+        event.causation_id
+        == causation_id
+    )
+
+
+# =========================================================
+# Timestamp contract
+# =========================================================
 
 
 def test_occurred_at_is_timezone_aware() -> None:
@@ -99,9 +135,16 @@ def test_occurred_at_is_timezone_aware() -> None:
         payload={},
     )
 
-    assert event.occurred_at.tzinfo is not None
-    assert event.occurred_at.utcoffset() == timezone.utc.utcoffset(
-        event.occurred_at
+    assert (
+        event.occurred_at.tzinfo
+        is not None
+    )
+
+    assert (
+        event.occurred_at.utcoffset()
+        == UTC.utcoffset(
+            event.occurred_at
+        )
     )
 
 
@@ -113,7 +156,7 @@ def test_explicit_utc_timestamp_is_preserved() -> None:
         12,
         0,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
     event = EventEnvelope(
@@ -123,7 +166,15 @@ def test_explicit_utc_timestamp_is_preserved() -> None:
         payload={},
     )
 
-    assert event.occurred_at == timestamp
+    assert (
+        event.occurred_at
+        == timestamp
+    )
+
+
+# =========================================================
+# Serialization contract
+# =========================================================
 
 
 def test_event_json_is_valid_json() -> None:
@@ -137,18 +188,31 @@ def test_event_json_is_valid_json() -> None:
 
     raw = event.to_event_json()
 
-    document = json.loads(raw)
-
-    assert document["event_id"] == str(
-        event.event_id
+    document = json.loads(
+        raw
     )
 
-    assert document["event_type"] == (
-        "market.trade.received"
+    assert (
+        document["event_id"]
+        == str(
+            event.event_id
+        )
     )
 
-    assert document["schema_version"] == 1
-    assert document["source"] == "market-ingestor"
+    assert (
+        document["event_type"]
+        == "market.trade.received"
+    )
+
+    assert (
+        document["schema_version"]
+        == 1
+    )
+
+    assert (
+        document["source"]
+        == "market-ingestor"
+    )
 
     assert document["payload"] == {
         "symbol": "AAPL",
@@ -163,7 +227,7 @@ def test_event_json_serializes_datetime_as_utc() -> None:
         12,
         0,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
     event = EventEnvelope(
@@ -177,8 +241,9 @@ def test_event_json_serializes_datetime_as_utc() -> None:
         event.to_event_json()
     )
 
-    assert document["occurred_at"] == (
-        "2026-09-03T12:00:00Z"
+    assert (
+        document["occurred_at"]
+        == "2026-09-03T12:00:00Z"
     )
 
 
@@ -200,16 +265,25 @@ def test_event_json_serializes_uuid_as_string() -> None:
         event.to_event_json()
     )
 
-    assert document["event_id"] == str(
-        event_id
+    assert (
+        document["event_id"]
+        == str(
+            event_id
+        )
     )
 
-    assert document["correlation_id"] == str(
-        correlation_id
+    assert (
+        document["correlation_id"]
+        == str(
+            correlation_id
+        )
     )
 
-    assert document["causation_id"] == str(
-        causation_id
+    assert (
+        document["causation_id"]
+        == str(
+            causation_id
+        )
     )
 
 
@@ -231,19 +305,39 @@ def test_payload_can_contain_nested_data() -> None:
     )
 
     assert (
-        document["payload"]["trade"]["price"]
+        document[
+            "payload"
+        ][
+            "trade"
+        ][
+            "price"
+        ]
         == "229.51"
     )
 
     assert (
-        document["payload"]["trade"]["quantity"]
+        document[
+            "payload"
+        ][
+            "trade"
+        ][
+            "quantity"
+        ]
         == 100
     )
 
 
+# =========================================================
+# Validation contract
+# =========================================================
+
+
 def test_event_rejects_empty_event_type() -> None:
     with pytest.raises(
-        (ValidationError, ValueError)
+        (
+            ValidationError,
+            ValueError,
+        )
     ):
         EventEnvelope(
             event_type="",
@@ -254,10 +348,125 @@ def test_event_rejects_empty_event_type() -> None:
 
 def test_event_rejects_empty_source() -> None:
     with pytest.raises(
-        (ValidationError, ValueError)
+        (
+            ValidationError,
+            ValueError,
+        )
     ):
         EventEnvelope(
-            event_type="market.trade.received",
+            event_type=(
+                "market.trade.received"
+            ),
             source="",
             payload={},
         )
+
+
+# =========================================================
+# Distributed trace transport contract
+# =========================================================
+
+
+def test_trace_context_can_be_serialized() -> None:
+    traceparent = (
+        "00-"
+        "4bf92f3577b34da6a3ce929d0e0e4736-"
+        "00f067aa0ba902b7-"
+        "01"
+    )
+
+    event = EventEnvelope(
+        event_type="risk.alert.detected",
+        source="risk-engine",
+        trace_context={
+            "traceparent":
+                traceparent,
+        },
+        payload={},
+    )
+
+    document = json.loads(
+        event.to_event_json()
+    )
+
+    assert (
+        document["trace_context"]
+        == {
+            "traceparent":
+                traceparent,
+        }
+    )
+
+
+def test_trace_context_round_trips_through_event_envelope() -> None:
+    trace_context = {
+        "traceparent": (
+            "00-"
+            "4bf92f3577b34da6a3ce929d0e0e4736-"
+            "00f067aa0ba902b7-"
+            "01"
+        ),
+        "tracestate": (
+            "vendor=value"
+        ),
+    }
+
+    original = EventEnvelope(
+        event_type="risk.alert.detected",
+        source="risk-engine",
+        trace_context=trace_context,
+        payload={
+            "symbol": "AAPL",
+        },
+    )
+
+    restored = (
+        EventEnvelope
+        .model_validate_json(
+            original.to_event_json()
+        )
+    )
+
+    assert (
+        restored.trace_context
+        == trace_context
+    )
+
+    assert (
+        restored.event_id
+        == original.event_id
+    )
+
+    assert (
+        restored.correlation_id
+        == original.correlation_id
+    )
+
+
+def test_missing_trace_context_preserves_existing_wire_contract() -> None:
+    event = EventEnvelope(
+        event_type="market.trade.received",
+        source="market-ingestor",
+        payload={},
+    )
+
+    document = json.loads(
+        event.to_event_json()
+    )
+
+    assert (
+        "trace_context"
+        not in document
+    )
+
+    assert (
+        "causation_id"
+        in document
+    )
+
+    assert (
+        document[
+            "causation_id"
+        ]
+        is None
+    )

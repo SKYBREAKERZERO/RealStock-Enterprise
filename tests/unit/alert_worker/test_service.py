@@ -10,6 +10,9 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 from libs.domain.market import Market
 from libs.domain.risk import (
@@ -24,6 +27,8 @@ from libs.observability import (
     InMemoryMetricSink,
     MetricsRecorder,
     MetricUnit,
+    create_tracing_runtime,
+    inject_trace_context,
 )
 from services.alert_worker import (
     EVENTBRIDGE_RISK_SOURCE,
@@ -1041,3 +1046,232 @@ def test_completion_failure_metrics_preserve_publish_fact() -> None:
     )
 
     store.release.assert_not_called()
+
+
+# =========================================================
+# Distributed tracing
+# =========================================================
+
+
+def test_alert_processing_continues_remote_trace() -> None:
+    producer_exporter = (
+        InMemorySpanExporter()
+    )
+
+    consumer_exporter = (
+        InMemorySpanExporter()
+    )
+
+    producer_runtime = (
+        create_tracing_runtime(
+            service_name="risk-engine",
+            environment="test",
+            exporter=producer_exporter,
+        )
+    )
+
+    consumer_runtime = (
+        create_tracing_runtime(
+            service_name="alert-worker",
+            environment="test",
+            exporter=consumer_exporter,
+        )
+    )
+
+    store = Mock()
+    publisher = Mock()
+
+    message, event = (
+        build_sqs_message()
+    )
+
+    try:
+        # ====================================================
+        # Simulate the upstream Risk Engine / EventBridge span.
+        #
+        # The active span is serialized into W3C traceparent.
+        # ====================================================
+
+        with (
+            producer_runtime
+            .tracer
+            .start_as_current_span(
+                "eventbridge.publish"
+            )
+        ) as producer_span:
+            producer_context = (
+                producer_span
+                .get_span_context()
+            )
+
+            carrier = (
+                inject_trace_context()
+            )
+
+        assert (
+            "traceparent"
+            in carrier
+        )
+
+        # ====================================================
+        # Simulate EventBridge Detail -> SQS Body.
+        # ====================================================
+
+        traced_event = (
+            event.model_copy(
+                update={
+                    "trace_context":
+                        carrier
+                }
+            )
+        )
+
+        body = json.loads(
+            message["Body"]
+        )
+
+        body["detail"] = (
+            traced_event
+            .to_event_dict()
+        )
+
+        message["Body"] = (
+            json.dumps(
+                body
+            )
+        )
+
+        # ====================================================
+        # Normal Alert Worker dependencies.
+        # ====================================================
+
+        claim = IdempotencyClaim(
+            event_id=str(
+                event.event_id
+            ),
+            claim_id="claim-001",
+        )
+
+        store.claim.return_value = (
+            claim
+        )
+
+        publisher.publish.return_value = (
+            SnsPublishResult(
+                message_id="sns-001"
+            )
+        )
+
+        service = (
+            AlertWorkerService(
+                parser=(
+                    AlertMessageParser()
+                ),
+                idempotency_store=(
+                    store
+                ),
+                notification_publisher=(
+                    publisher
+                ),
+                tracer=(
+                    consumer_runtime
+                    .tracer
+                ),
+            )
+        )
+
+        result = (
+            service.process_message(
+                message
+            )
+        )
+
+        assert (
+            result.status
+            == AlertProcessingStatus.PUBLISHED
+        )
+
+        assert (
+            result.event_id
+            == str(
+                event.event_id
+            )
+        )
+
+        assert (
+            consumer_runtime.force_flush()
+        )
+
+        spans = (
+            consumer_exporter
+            .get_finished_spans()
+        )
+
+        alert_span = next(
+            span
+            for span in spans
+            if (
+                span.name
+                == "alert.process"
+            )
+        )
+
+        # ====================================================
+        # Distributed trace continuity.
+        #
+        # Risk Engine:
+        #
+        #   trace_id = ABC
+        #   span_id  = 111
+        #
+        # Alert Worker:
+        #
+        #   trace_id = ABC
+        #   span_id  = 222
+        #   parent   = 111 (remote)
+        # ====================================================
+
+        assert (
+            alert_span.context.trace_id
+            == producer_context.trace_id
+        )
+
+        assert (
+            alert_span.context.span_id
+            != producer_context.span_id
+        )
+
+        assert (
+            alert_span.parent
+            is not None
+        )
+
+        assert (
+            alert_span.parent.span_id
+            == producer_context.span_id
+        )
+
+        assert (
+            alert_span.parent.trace_id
+            == producer_context.trace_id
+        )
+
+        assert (
+            alert_span.parent.is_remote
+        )
+
+        # ====================================================
+        # Business semantics must remain unchanged.
+        # ====================================================
+
+        publisher.publish.assert_called_once()
+
+        store.complete.assert_called_once_with(
+            claim
+        )
+
+        store.release.assert_not_called()
+
+    finally:
+        producer_runtime.shutdown()
+        consumer_runtime.shutdown()

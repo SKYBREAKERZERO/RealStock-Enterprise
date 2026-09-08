@@ -12,6 +12,9 @@ from typing import Any
 from libs.observability.context import (
     get_observability_context,
 )
+from libs.observability.tracing import (
+    get_trace_identifiers,
+)
 
 DEFAULT_SERVICE_NAME = (
     "realstock"
@@ -29,6 +32,8 @@ RESERVED_LOG_FIELDS = frozenset(
         "correlation_id",
         "event_id",
         "causation_id",
+        "trace_id",
+        "span_id",
         "exception",
     }
 )
@@ -43,6 +48,18 @@ class JsonLogFormatter(
     Logs are emitted as single-line JSON and can later be
     collected by ECS awslogs, FireLens, Fluent Bit,
     OpenTelemetry Collector, or other log pipelines.
+
+    Business correlation identifiers and OpenTelemetry trace
+    identifiers are emitted together when available:
+
+        correlation_id
+        event_id
+        causation_id
+        trace_id
+        span_id
+
+    Business identifiers describe event causality while
+    trace_id/span_id describe the distributed execution path.
     """
 
     def __init__(
@@ -89,6 +106,10 @@ class JsonLogFormatter(
             get_observability_context()
         )
 
+        trace_identifiers = (
+            get_trace_identifiers()
+        )
+
         payload: dict[str, Any] = {
             "timestamp": (
                 datetime.now(
@@ -107,6 +128,10 @@ class JsonLogFormatter(
                 record.getMessage()
             ),
         }
+
+        # ====================================================
+        # Business / event correlation context
+        # ====================================================
 
         if (
             context.correlation_id
@@ -132,12 +157,48 @@ class JsonLogFormatter(
                 "causation_id"
             ] = context.causation_id
 
+        # ====================================================
+        # Distributed trace context
+        #
+        # These values come from the active OpenTelemetry span
+        # and therefore must not be supplied by callers.
+        # ====================================================
+
+        if (
+            trace_identifiers
+            is not None
+        ):
+            payload[
+                "trace_id"
+            ] = (
+                trace_identifiers
+                .trace_id
+            )
+
+            payload[
+                "span_id"
+            ] = (
+                trace_identifiers
+                .span_id
+            )
+
+        # ====================================================
+        # Exception
+        # ====================================================
+
         if record.exc_info:
             payload[
                 "exception"
             ] = self.formatException(
                 record.exc_info
             )
+
+        # ====================================================
+        # Structured application fields
+        #
+        # Reserved observability fields cannot be overridden
+        # by arbitrary structured log data.
+        # ====================================================
 
         extra_fields = getattr(
             record,
@@ -176,6 +237,14 @@ def configure_json_logging(
     environment: str = "local",
     level: int = logging.INFO,
 ) -> None:
+    """
+    Configure process-wide JSON logging.
+
+    Logs are written to stdout so container runtimes can
+    forward them to CloudWatch Logs, FireLens, Fluent Bit,
+    ADOT, or another centralized logging pipeline.
+    """
+
     handler = logging.StreamHandler(
         sys.stdout
     )
@@ -205,6 +274,13 @@ def configure_json_logging(
 def get_logger(
     name: str,
 ) -> logging.Logger:
+    """
+    Return a standard Python logger.
+
+    Formatting and trace enrichment are handled centrally by
+    JsonLogFormatter.
+    """
+
     return logging.getLogger(
         name
     )
@@ -216,6 +292,17 @@ def log_event(
     message: str,
     **fields: Any,
 ) -> None:
+    """
+    Emit one structured application log event.
+
+    Caller-provided fields are placed under structured_fields
+    and later merged into the final JSON payload by
+    JsonLogFormatter.
+
+    Reserved observability fields such as trace_id, span_id,
+    event_id, and correlation_id cannot be overridden here.
+    """
+
     logger.log(
         level,
         message,

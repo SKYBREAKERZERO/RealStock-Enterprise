@@ -6,6 +6,10 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind
 
 from libs.domain.market import (
     Market,
@@ -18,6 +22,8 @@ from libs.observability import (
     InMemoryMetricSink,
     MetricsRecorder,
     MetricUnit,
+    create_tracing_runtime,
+    inject_trace_context,
 )
 from services.risk_engine import (
     EventBridgePublishResult,
@@ -75,6 +81,11 @@ def build_record(
         "PartitionKey": "AAPL",
         "SequenceNumber": "1",
     }
+
+
+# =========================================================
+# Functional behavior
+# =========================================================
 
 
 def test_first_quote_initializes_state_without_publish() -> None:
@@ -283,6 +294,13 @@ def test_eventbridge_failure_propagates() -> None:
                 )
             )
         )
+
+
+# =========================================================
+# Structured logging
+# =========================================================
+
+
 def test_processing_logs_market_event_context(
     caplog,
 ) -> None:
@@ -505,6 +523,13 @@ def test_eventbridge_failure_is_logged(
         fields["event_type"]
         == "market.quote.received"
     )
+
+
+# =========================================================
+# Metrics
+# =========================================================
+
+
 def test_metrics_record_event_without_alert() -> None:
     publisher = Mock(
         spec=EventBridgeRiskEventPublisher
@@ -791,3 +816,380 @@ def test_invalid_record_records_failure_and_latency() -> None:
         "MarketEventsProcessed"
         not in names
     )
+
+
+# =========================================================
+# Distributed tracing
+# =========================================================
+
+
+def test_risk_processing_creates_consumer_span() -> None:
+    exporter = InMemorySpanExporter()
+
+    runtime = create_tracing_runtime(
+        service_name="risk-engine",
+        environment="test",
+        exporter=exporter,
+    )
+
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    event = build_quote_event(
+        price=Decimal("100"),
+        seconds=1,
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+        tracer=runtime.tracer,
+    )
+
+    try:
+        result = consumer.process_record(
+            build_record(
+                event
+            )
+        )
+
+        assert (
+            result.market_event_id
+            == str(
+                event.event_id
+            )
+        )
+
+        assert runtime.force_flush()
+
+        spans = (
+            exporter.get_finished_spans()
+        )
+
+        risk_span = next(
+            span
+            for span in spans
+            if span.name
+            == "risk.process"
+        )
+
+        assert (
+            risk_span.kind
+            == SpanKind.CONSUMER
+        )
+
+        assert (
+            risk_span.attributes[
+                "messaging.system"
+            ]
+            == "aws_kinesis"
+        )
+
+        assert (
+            risk_span.attributes[
+                "messaging.operation"
+            ]
+            == "process"
+        )
+
+        assert (
+            risk_span.attributes[
+                "realstock.event_type"
+            ]
+            == event.event_type
+        )
+
+        assert (
+            risk_span.attributes[
+                "realstock.event_id"
+            ]
+            == str(
+                event.event_id
+            )
+        )
+
+        assert (
+            risk_span.attributes[
+                "realstock.correlation_id"
+            ]
+            == str(
+                event.correlation_id
+            )
+        )
+
+    finally:
+        runtime.shutdown()
+
+
+def test_eventbridge_publish_runs_inside_risk_span() -> None:
+    exporter = InMemorySpanExporter()
+
+    runtime = create_tracing_runtime(
+        service_name="risk-engine",
+        environment="test",
+        exporter=exporter,
+    )
+
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    captured_carrier: dict[
+        str,
+        str,
+    ] = {}
+
+    def publish_side_effect(
+        event,
+    ):
+        captured_carrier.update(
+            inject_trace_context()
+        )
+
+        return EventBridgePublishResult(
+            event_id="eventbridge-001"
+        )
+
+    publisher.publish.side_effect = (
+        publish_side_effect
+    )
+
+    consumer = KinesisRiskEngineConsumer(
+        risk_engine=RiskEngineService(
+            state_store=(
+                InMemoryQuoteStateStore()
+            )
+        ),
+        publisher=publisher,
+        tracer=runtime.tracer,
+    )
+
+    first_event = build_quote_event(
+        price=Decimal("100"),
+        seconds=1,
+    )
+
+    second_event = build_quote_event(
+        price=Decimal("94"),
+        seconds=2,
+    )
+
+    try:
+        consumer.process_record(
+            build_record(
+                first_event
+            )
+        )
+
+        result = consumer.process_record(
+            build_record(
+                second_event
+            )
+        )
+
+        assert (
+            result.alert_generated
+            is True
+        )
+
+        assert (
+            "traceparent"
+            in captured_carrier
+        )
+
+        assert runtime.force_flush()
+
+        spans = (
+            exporter.get_finished_spans()
+        )
+
+        second_span = next(
+            span
+            for span in spans
+            if (
+                span.name
+                == "risk.process"
+                and span.attributes[
+                    "realstock.event_id"
+                ]
+                == str(
+                    second_event.event_id
+                )
+            )
+        )
+
+        traceparent = (
+            captured_carrier[
+                "traceparent"
+            ]
+        )
+
+        parts = traceparent.split(
+            "-"
+        )
+
+        assert len(parts) == 4
+
+        assert (
+            parts[1]
+            == (
+                f"{second_span.context.trace_id:032x}"
+            )
+        )
+
+        assert (
+            parts[2]
+            == (
+                f"{second_span.context.span_id:016x}"
+            )
+        )
+
+    finally:
+        runtime.shutdown()
+
+
+def test_risk_processing_continues_incoming_remote_trace() -> None:
+    upstream_exporter = (
+        InMemorySpanExporter()
+    )
+
+    risk_exporter = (
+        InMemorySpanExporter()
+    )
+
+    upstream_runtime = (
+        create_tracing_runtime(
+            service_name="market-ingestor",
+            environment="test",
+            exporter=upstream_exporter,
+        )
+    )
+
+    risk_runtime = (
+        create_tracing_runtime(
+            service_name="risk-engine",
+            environment="test",
+            exporter=risk_exporter,
+        )
+    )
+
+    publisher = Mock(
+        spec=EventBridgeRiskEventPublisher
+    )
+
+    event = build_quote_event(
+        price=Decimal("100"),
+        seconds=1,
+    )
+
+    try:
+        with (
+            upstream_runtime
+            .tracer
+            .start_as_current_span(
+                "kinesis.publish"
+            )
+        ) as upstream_span:
+            upstream_context = (
+                upstream_span
+                .get_span_context()
+            )
+
+            carrier = (
+                inject_trace_context()
+            )
+
+        assert (
+            "traceparent"
+            in carrier
+        )
+
+        traced_event = (
+            event.model_copy(
+                update={
+                    "trace_context":
+                        carrier
+                }
+            )
+        )
+
+        consumer = (
+            KinesisRiskEngineConsumer(
+                risk_engine=(
+                    RiskEngineService(
+                        state_store=(
+                            InMemoryQuoteStateStore()
+                        )
+                    )
+                ),
+                publisher=publisher,
+                tracer=(
+                    risk_runtime.tracer
+                ),
+            )
+        )
+
+        result = consumer.process_record(
+            build_record(
+                traced_event
+            )
+        )
+
+        assert (
+            result.market_event_id
+            == str(
+                event.event_id
+            )
+        )
+
+        assert risk_runtime.force_flush()
+
+        spans = (
+            risk_exporter
+            .get_finished_spans()
+        )
+
+        risk_span = next(
+            span
+            for span in spans
+            if span.name
+            == "risk.process"
+        )
+
+        assert (
+            risk_span.context.trace_id
+            == upstream_context.trace_id
+        )
+
+        assert (
+            risk_span.context.span_id
+            != upstream_context.span_id
+        )
+
+        assert (
+            risk_span.parent
+            is not None
+        )
+
+        assert (
+            risk_span.parent.span_id
+            == upstream_context.span_id
+        )
+
+        assert (
+            risk_span.parent.trace_id
+            == upstream_context.trace_id
+        )
+
+        assert (
+            risk_span.parent.is_remote
+        )
+
+    finally:
+        upstream_runtime.shutdown()
+        risk_runtime.shutdown()

@@ -5,12 +5,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from opentelemetry import trace
+from opentelemetry.trace import (
+    SpanKind,
+    Tracer,
+)
 from pydantic import ValidationError
 
 from libs.events import EventEnvelope
 from libs.observability import (
     MetricsRecorder,
     bind_observability_context,
+    extract_trace_context,
     get_logger,
     log_event,
 )
@@ -23,6 +29,10 @@ from services.risk_engine.service import (
 
 LOGGER = get_logger(
     "realstock.risk_engine.consumer"
+)
+
+DEFAULT_TRACER_NAME = (
+    "realstock.risk_engine"
 )
 
 
@@ -55,19 +65,27 @@ class KinesisRiskEngineConsumer:
             ↓
         EventEnvelope
             ↓
+        risk.process CONSUMER span
+            ↓
         RiskEngineService
             ↓
         risk.alert.detected
             ↓
-        EventBridge
+        EventBridge publisher
+            ↓
+        W3C trace context injection
 
     Observability:
 
         structured logging
-        correlation context
+        business correlation context
+        distributed tracing
         processing counters
         processing latency
         failure counters
+
+    The tracing layer does not change business retry,
+    publication, or failure semantics.
     """
 
     def __init__(
@@ -76,6 +94,7 @@ class KinesisRiskEngineConsumer:
         risk_engine: RiskEngineService,
         publisher: EventBridgeRiskEventPublisher,
         metrics: MetricsRecorder | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self._risk_engine = risk_engine
         self._publisher = publisher
@@ -84,6 +103,14 @@ class KinesisRiskEngineConsumer:
             metrics
             if metrics is not None
             else MetricsRecorder()
+        )
+
+        self._tracer = (
+            tracer
+            if tracer is not None
+            else trace.get_tracer(
+                DEFAULT_TRACER_NAME
+            )
         )
 
     @staticmethod
@@ -97,7 +124,10 @@ class KinesisRiskEngineConsumer:
 
         raw_data = record["Data"]
 
-        if isinstance(raw_data, bytes):
+        if isinstance(
+            raw_data,
+            bytes,
+        ):
             try:
                 return raw_data.decode(
                     "utf-8"
@@ -108,7 +138,10 @@ class KinesisRiskEngineConsumer:
                     "Kinesis Data is not valid UTF-8"
                 ) from exc
 
-        if isinstance(raw_data, str):
+        if isinstance(
+            raw_data,
+            str,
+        ):
             return raw_data
 
         raise InvalidKinesisMarketEventError(
@@ -143,8 +176,8 @@ class KinesisRiskEngineConsumer:
 
         Any exception crossing this boundary increments
         RiskProcessingFailures and is propagated to the
-        caller so the transport/runtime can apply retry
-        semantics.
+        caller so Kinesis/runtime retry semantics remain
+        unchanged.
         """
 
         with self._metrics.timer(
@@ -195,143 +228,211 @@ class KinesisRiskEngineConsumer:
             else None
         )
 
-        # A market event is considered processed only
-        # after it has been successfully decoded and
-        # validated as an EventEnvelope.
-        self._metrics.increment(
-            "MarketEventsProcessed",
-            dimensions={
-                "EventType": (
-                    market_event.event_type
-                )
-            },
+        parent_context = (
+            extract_trace_context(
+                market_event.trace_context
+            )
         )
 
-        with bind_observability_context(
-            correlation_id=correlation_id,
-            event_id=market_event_id,
-            causation_id=causation_id,
+        span_attributes = {
+            "messaging.system": (
+                "aws_kinesis"
+            ),
+            "messaging.operation": (
+                "process"
+            ),
+            "realstock.event_type": (
+                market_event.event_type
+            ),
+            "realstock.event_id": (
+                market_event_id
+            ),
+            "realstock.correlation_id": (
+                correlation_id
+            ),
+        }
+
+        with self._tracer.start_as_current_span(
+            "risk.process",
+            context=parent_context,
+            kind=SpanKind.CONSUMER,
+            attributes=span_attributes,
         ):
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "market event received",
-                event_type=(
-                    market_event.event_type
-                ),
+            # A market event is considered processed only
+            # after successful decode and EventEnvelope
+            # validation.
+            self._metrics.increment(
+                "MarketEventsProcessed",
+                dimensions={
+                    "EventType": (
+                        market_event.event_type
+                    )
+                },
             )
 
-            try:
-                risk_event = (
-                    self._risk_engine
-                    .process_event(
-                        market_event
-                    )
-                )
-
-                # Trade event, first quote, stale quote,
-                # or movement below configured threshold.
-                if risk_event is None:
-                    log_event(
-                        LOGGER,
-                        logging.INFO,
-                        (
-                            "market event processed "
-                            "without risk alert"
-                        ),
-                        event_type=(
-                            market_event.event_type
-                        ),
-                    )
-
-                    return (
-                        KinesisRiskProcessingResult(
-                            market_event_id=(
-                                market_event_id
-                            )
-                        )
-                    )
-
-                risk_event_id = str(
-                    risk_event.event_id
-                )
-
-                severity = str(
-                    risk_event.payload[
-                        "severity"
-                    ]
-                )
-
-                market = str(
-                    risk_event.payload[
-                        "market"
-                    ]
-                )
-
-                # The Risk Engine successfully detected a
-                # business risk. Publication may still fail
-                # independently afterward.
-                self._metrics.increment(
-                    "RiskAlertsGenerated",
-                    dimensions={
-                        "Severity": severity,
-                        "Market": market,
-                    },
-                )
-
-                log_event(
-                    LOGGER,
-                    logging.WARNING,
-                    "risk alert generated",
-                    risk_event_id=(
-                        risk_event_id
-                    ),
-                    risk_type=(
-                        risk_event.payload.get(
-                            "risk_type"
-                        )
-                    ),
-                    severity=severity,
-                    market=market,
-                    symbol=(
-                        risk_event.payload.get(
-                            "symbol"
-                        )
-                    ),
-                    observed_value=(
-                        risk_event.payload.get(
-                            "observed_value"
-                        )
-                    ),
-                    threshold=(
-                        risk_event.payload.get(
-                            "threshold"
-                        )
+            with bind_observability_context(
+                correlation_id=(
+                    correlation_id
+                ),
+                event_id=(
+                    market_event_id
+                ),
+                causation_id=(
+                    causation_id
+                ),
+            ):
+                return self._process_market_event(
+                    market_event=market_event,
+                    market_event_id=(
+                        market_event_id
                     ),
                 )
 
-                publish_result = (
-                    self._publisher.publish(
-                        risk_event
-                    )
-                )
+    def _process_market_event(
+        self,
+        *,
+        market_event: EventEnvelope,
+        market_event_id: str,
+    ) -> KinesisRiskProcessingResult:
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "market event received",
+            event_type=(
+                market_event.event_type
+            ),
+        )
 
-                # Increment only after EventBridge accepted
-                # the publication.
-                self._metrics.increment(
-                    "RiskEventsPublished",
-                    dimensions={
-                        "Severity": severity,
-                        "Market": market,
-                    },
+        try:
+            risk_event = (
+                self._risk_engine
+                .process_event(
+                    market_event
                 )
+            )
 
+            # Trade event, first quote, stale quote,
+            # or movement below configured threshold.
+            if risk_event is None:
                 log_event(
                     LOGGER,
                     logging.INFO,
                     (
-                        "risk event published "
-                        "to eventbridge"
+                        "market event processed "
+                        "without risk alert"
+                    ),
+                    event_type=(
+                        market_event.event_type
+                    ),
+                )
+
+                return (
+                    KinesisRiskProcessingResult(
+                        market_event_id=(
+                            market_event_id
+                        )
+                    )
+                )
+
+            risk_event_id = str(
+                risk_event.event_id
+            )
+
+            severity = str(
+                risk_event.payload[
+                    "severity"
+                ]
+            )
+
+            market = str(
+                risk_event.payload[
+                    "market"
+                ]
+            )
+
+            # Business risk was detected successfully.
+            # EventBridge publication can still fail
+            # independently after this point.
+            self._metrics.increment(
+                "RiskAlertsGenerated",
+                dimensions={
+                    "Severity": severity,
+                    "Market": market,
+                },
+            )
+
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "risk alert generated",
+                risk_event_id=(
+                    risk_event_id
+                ),
+                risk_type=(
+                    risk_event.payload.get(
+                        "risk_type"
+                    )
+                ),
+                severity=severity,
+                market=market,
+                symbol=(
+                    risk_event.payload.get(
+                        "symbol"
+                    )
+                ),
+                observed_value=(
+                    risk_event.payload.get(
+                        "observed_value"
+                    )
+                ),
+                threshold=(
+                    risk_event.payload.get(
+                        "threshold"
+                    )
+                ),
+            )
+
+            # This call executes while risk.process is the
+            # active span.
+            #
+            # EventBridgeRiskEventPublisher therefore injects
+            # this span's W3C trace context into the outbound
+            # risk EventEnvelope.
+            publish_result = (
+                self._publisher.publish(
+                    risk_event
+                )
+            )
+
+            # Increment only after EventBridge accepted
+            # publication.
+            self._metrics.increment(
+                "RiskEventsPublished",
+                dimensions={
+                    "Severity": severity,
+                    "Market": market,
+                },
+            )
+
+            log_event(
+                LOGGER,
+                logging.INFO,
+                (
+                    "risk event published "
+                    "to eventbridge"
+                ),
+                risk_event_id=(
+                    risk_event_id
+                ),
+                eventbridge_event_id=(
+                    publish_result.event_id
+                ),
+            )
+
+            return (
+                KinesisRiskProcessingResult(
+                    market_event_id=(
+                        market_event_id
                     ),
                     risk_event_id=(
                         risk_event_id
@@ -340,32 +441,19 @@ class KinesisRiskEngineConsumer:
                         publish_result.event_id
                     ),
                 )
+            )
 
-                return (
-                    KinesisRiskProcessingResult(
-                        market_event_id=(
-                            market_event_id
+        except Exception:
+            LOGGER.exception(
+                "risk event processing failed",
+                extra={
+                    "structured_fields": {
+                        "event_type": (
+                            market_event
+                            .event_type
                         ),
-                        risk_event_id=(
-                            risk_event_id
-                        ),
-                        eventbridge_event_id=(
-                            publish_result.event_id
-                        ),
-                    )
-                )
+                    }
+                },
+            )
 
-            except Exception:
-                LOGGER.exception(
-                    "risk event processing failed",
-                    extra={
-                        "structured_fields": {
-                            "event_type": (
-                                market_event
-                                .event_type
-                            ),
-                        }
-                    },
-                )
-
-                raise
+            raise
