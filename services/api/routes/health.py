@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
 from libs.aws import (
@@ -11,12 +11,27 @@ from libs.aws import (
 from libs.cache import get_redis_client
 from libs.database import get_engine
 
-
 router = APIRouter(
     tags=["health"],
 )
 
 
+# ============================================================
+# Liveness
+# ============================================================
+#
+# Purpose:
+#   Indicates whether the API process itself is alive.
+#
+# Important:
+#   This endpoint deliberately does NOT check external
+#   dependencies.
+#
+# Docker / ECS container health checks should use this endpoint.
+#
+# Semantics:
+#   200 -> application process is alive
+# ============================================================
 @router.get("/health")
 def health() -> dict[str, str]:
     return {
@@ -24,8 +39,46 @@ def health() -> dict[str, str]:
     }
 
 
+# ============================================================
+# Readiness
+# ============================================================
+#
+# Purpose:
+#   Indicates whether the API is ready to serve traffic.
+#
+# Dependencies:
+#   - PostgreSQL
+#   - Redis
+#   - AWS / LocalStack STS
+#   - S3
+#   - DynamoDB
+#
+# Semantics:
+#
+#   All dependencies available:
+#       HTTP 200
+#       status = ready
+#
+#   One or more dependencies unavailable:
+#       HTTP 503
+#       status = not_ready
+#
+# This distinction is important for ALB / ECS:
+#
+#   /health
+#       process liveness
+#
+#   /health/ready
+#       traffic readiness
+#
+# A temporary dependency failure should make the service
+# unavailable for traffic without incorrectly declaring the
+# container process itself dead.
+# ============================================================
 @router.get("/health/ready")
-def readiness() -> dict[str, object]:
+def readiness(
+    response: Response,
+) -> dict[str, object]:
     dependencies: dict[str, str] = {
         "postgresql": "unknown",
         "redis": "unknown",
@@ -34,9 +87,9 @@ def readiness() -> dict[str, object]:
         "dynamodb": "unknown",
     }
 
-    # ----------------------------------------------------------
+    # ========================================================
     # PostgreSQL
-    # ----------------------------------------------------------
+    # ========================================================
     try:
         engine = get_engine()
 
@@ -54,9 +107,9 @@ def readiness() -> dict[str, object]:
     except Exception:
         dependencies["postgresql"] = "error"
 
-    # ----------------------------------------------------------
+    # ========================================================
     # Redis
-    # ----------------------------------------------------------
+    # ========================================================
     try:
         redis_client = get_redis_client()
 
@@ -69,16 +122,18 @@ def readiness() -> dict[str, object]:
     except Exception:
         dependencies["redis"] = "error"
 
-    # ----------------------------------------------------------
-    # LocalStack / STS
-    # ----------------------------------------------------------
+    # ========================================================
+    # AWS / LocalStack STS
+    # ========================================================
     try:
-        sts = get_sts_client()
+        sts_client = get_sts_client()
 
-        response = sts.get_caller_identity()
+        aws_response = (
+            sts_client.get_caller_identity()
+        )
 
         status_code = (
-            response
+            aws_response
             .get("ResponseMetadata", {})
             .get("HTTPStatusCode", 0)
         )
@@ -92,16 +147,18 @@ def readiness() -> dict[str, object]:
     except Exception:
         dependencies["localstack"] = "error"
 
-    # ----------------------------------------------------------
+    # ========================================================
     # S3
-    # ----------------------------------------------------------
+    # ========================================================
     try:
-        s3 = get_s3_client()
+        s3_client = get_s3_client()
 
-        response = s3.list_buckets()
+        aws_response = (
+            s3_client.list_buckets()
+        )
 
         status_code = (
-            response
+            aws_response
             .get("ResponseMetadata", {})
             .get("HTTPStatusCode", 0)
         )
@@ -115,18 +172,22 @@ def readiness() -> dict[str, object]:
     except Exception:
         dependencies["s3"] = "error"
 
-    # ----------------------------------------------------------
+    # ========================================================
     # DynamoDB
-    # ----------------------------------------------------------
+    # ========================================================
     try:
-        dynamodb = get_dynamodb_client()
+        dynamodb_client = (
+            get_dynamodb_client()
+        )
 
-        response = dynamodb.list_tables(
-            Limit=1,
+        aws_response = (
+            dynamodb_client.list_tables(
+                Limit=1,
+            )
         )
 
         status_code = (
-            response
+            aws_response
             .get("ResponseMetadata", {})
             .get("HTTPStatusCode", 0)
         )
@@ -140,10 +201,27 @@ def readiness() -> dict[str, object]:
     except Exception:
         dependencies["dynamodb"] = "error"
 
+    # ========================================================
+    # Aggregate readiness state
+    # ========================================================
     ready = all(
-        status == "ok"
-        for status in dependencies.values()
+        dependency_status == "ok"
+        for dependency_status
+        in dependencies.values()
     )
+
+    # --------------------------------------------------------
+    # HTTP readiness semantics
+    # --------------------------------------------------------
+    #
+    # Returning HTTP 503 is important because infrastructure
+    # such as an ALB should be able to determine readiness from
+    # the HTTP status code without parsing the response body.
+    # --------------------------------------------------------
+    if not ready:
+        response.status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+        )
 
     return {
         "status": (

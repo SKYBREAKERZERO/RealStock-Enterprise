@@ -1,5 +1,9 @@
 name: realstock-enterprise
 
+
+# ==============================================================
+# Services
+# ==============================================================
 services:
 
   # ============================================================
@@ -34,13 +38,10 @@ services:
     environment:
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
 
-      # LocalStack authentication.
-      # Real token must exist only in .env.
+      # Real token must exist only in local .env.
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
 
-      # Persist LocalStack state between container restarts.
       PERSISTENCE: "1"
-
       DEBUG: "0"
 
     volumes:
@@ -74,7 +75,7 @@ services:
   # Docker internal:
   #   postgres:5432
   #
-  # Host port 5432 is intentionally NOT used because another
+  # Host port 5432 is intentionally not used because another
   # PostgreSQL instance already occupies that port.
   # ============================================================
   postgres:
@@ -166,32 +167,23 @@ services:
   # ============================================================
   # Local telemetry gateway for distributed tracing.
   #
-  # Current Day15 flow:
-  #
-  #   RealStock Python Service
-  #          |
-  #          | OTLP / HTTP
-  #          v
-  #   OpenTelemetry Collector
-  #          |
-  #          v
-  #      Debug Exporter
-  #
   # Windows host:
+  #
   #   OTLP HTTP:
   #     http://127.0.0.1:4318
   #
-  #   Health:
+  #   Collector health:
   #     http://127.0.0.1:13133
   #
   # Docker internal:
+  #
   #   OTLP gRPC:
   #     otel-collector:4317
   #
   #   OTLP HTTP:
   #     otel-collector:4318
   #
-  # Future AWS architecture:
+  # Future AWS:
   #
   #   ECS Fargate
   #        |
@@ -200,9 +192,6 @@ services:
   #        |
   #        v
   #      AWS X-Ray
-  #
-  # Application code remains vendor-neutral and exports OTLP
-  # instead of depending directly on X-Ray SDK APIs.
   # ============================================================
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.160.0
@@ -218,13 +207,95 @@ services:
       - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
 
     ports:
-      # OTLP/HTTP.
-      # Python processes running directly on Windows use:
-      #   http://127.0.0.1:4318/v1/traces
       - "127.0.0.1:4318:4318"
-
-      # Collector health-check extension.
       - "127.0.0.1:13133:13133"
+
+    networks:
+      - realstock-local
+
+
+  # ============================================================
+  # RealStock API
+  # ============================================================
+  # Production-style FastAPI runtime image used locally through
+  # Docker Compose.
+  #
+  # Windows host:
+  #   http://127.0.0.1:18000
+  #
+  # Docker internal:
+  #
+  #   API:
+  #     api:8000
+  #
+  #   PostgreSQL:
+  #     postgres:5432
+  #
+  #   Redis:
+  #     redis:6379
+  #
+  #   LocalStack:
+  #     http://localstack:4566
+  #
+  # Liveness:
+  #   /health
+  #
+  # Readiness:
+  #   /health/ready
+  # ============================================================
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+
+    image: realstock-api:day16
+    container_name: realstock-api
+    restart: unless-stopped
+
+    environment:
+      # --------------------------------------------------------
+      # Application
+      # --------------------------------------------------------
+      APP_ENV: local
+      APP_NAME: realstock-api
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # --------------------------------------------------------
+      # AWS / LocalStack
+      # --------------------------------------------------------
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ENDPOINT_URL: http://localstack:4566
+
+      # --------------------------------------------------------
+      # PostgreSQL
+      #
+      # IMPORTANT:
+      # Docker containers must use Docker DNS service name
+      # "postgres", not 127.0.0.1 / localhost.
+      # --------------------------------------------------------
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}
+
+      # --------------------------------------------------------
+      # Redis
+      #
+      # Docker internal endpoint.
+      # --------------------------------------------------------
+      REDIS_URL: redis://redis:6379/0
+
+    ports:
+      - "127.0.0.1:18000:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      localstack:
+        condition: service_healthy
+
+    stop_grace_period: 30s
 
     networks:
       - realstock-local
@@ -234,6 +305,7 @@ services:
 # Networks
 # ==============================================================
 networks:
+
   realstock-local:
     name: realstock-local
     driver: bridge
@@ -244,11 +316,11 @@ networks:
 # ==============================================================
 volumes:
 
-  # LocalStack persistent AWS emulator state.
+  # LocalStack persistent state.
   localstack-data:
     name: realstock-localstack-data
 
-  # PostgreSQL persistent database state.
+  # PostgreSQL persistent database.
   postgres-data:
     name: realstock-postgres-data
 
