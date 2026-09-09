@@ -1,0 +1,159 @@
+# ==============================================================
+# RealStock Enterprise
+# OpenTelemetry Collector
+#
+# Environment:
+#   Local development
+#
+# Responsibilities:
+# - receive OTLP telemetry
+# - protect Collector memory
+# - batch trace exports
+# - expose health status
+# - emit traces through the debug exporter
+#
+# Production uses a separate ADOT configuration.
+# ==============================================================
+
+
+# ==============================================================
+# Receivers
+# ==============================================================
+receivers:
+
+  otlp:
+    protocols:
+
+      # --------------------------------------------------------
+      # OTLP / gRPC
+      # --------------------------------------------------------
+      # Available inside the Docker network.
+      #
+      # Docker:
+      #   otel-collector:4317
+      #
+      # This port is deliberately NOT published to the Windows
+      # host because RealStock currently uses OTLP/HTTP.
+      # --------------------------------------------------------
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+
+      # --------------------------------------------------------
+      # OTLP / HTTP
+      # --------------------------------------------------------
+      #
+      # Windows:
+      #   http://127.0.0.1:4318
+      #
+      # Trace endpoint:
+      #   http://127.0.0.1:4318/v1/traces
+      #
+      # Docker:
+      #   http://otel-collector:4318
+      # --------------------------------------------------------
+      http:
+        endpoint: 0.0.0.0:4318
+
+
+# ==============================================================
+# Processors
+# ==============================================================
+processors:
+
+  # ------------------------------------------------------------
+  # Memory Limiter
+  # ------------------------------------------------------------
+  # First processor in the pipeline.
+  #
+  # Protects the Collector from memory exhaustion and applies
+  # backpressure when memory consumption exceeds the configured
+  # limit.
+  # ------------------------------------------------------------
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+
+  # ------------------------------------------------------------
+  # Batch Processor
+  # ------------------------------------------------------------
+  # Batches spans before export.
+  #
+  # This reduces exporter request overhead and improves
+  # throughput.
+  # ------------------------------------------------------------
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+
+# ==============================================================
+# Exporters
+# ==============================================================
+exporters:
+
+  # ------------------------------------------------------------
+  # Debug Exporter
+  # ------------------------------------------------------------
+  # Local-only exporter.
+  #
+  # Allows the full telemetry pipeline to be verified without
+  # requiring AWS X-Ray or another external tracing backend.
+  #
+  # Example:
+  #
+  #   docker compose logs -f otel-collector
+  #
+  # Production must not use detailed debug output for normal
+  # telemetry delivery.
+  # ------------------------------------------------------------
+  debug:
+    verbosity: detailed
+
+
+# ==============================================================
+# Extensions
+# ==============================================================
+extensions:
+
+  # ------------------------------------------------------------
+  # Health Check
+  # ------------------------------------------------------------
+  #
+  # Windows:
+  #   http://127.0.0.1:13133/
+  #
+  # Used by local operations today and later by orchestration
+  # health checks.
+  # ------------------------------------------------------------
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+
+# ==============================================================
+# Service
+# ==============================================================
+service:
+
+  extensions:
+    - health_check
+
+
+  pipelines:
+
+    # ----------------------------------------------------------
+    # Distributed Tracing Pipeline
+    # ----------------------------------------------------------
+    traces:
+
+      receivers:
+        - otlp
+
+      processors:
+        - memory_limiter
+        - batch
+
+      exporters:
+        - debug

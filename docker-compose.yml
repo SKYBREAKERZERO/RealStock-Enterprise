@@ -16,6 +16,12 @@ services:
   # - SNS
   # - Secrets Manager
   # - KMS
+  #
+  # Windows host:
+  #   http://127.0.0.1:4566
+  #
+  # Docker internal:
+  #   http://localstack:4566
   # ============================================================
   localstack:
     image: localstack/localstack:2026.7.1
@@ -112,6 +118,12 @@ services:
   # - Market data cache
   # - Rate limiting
   # - Temporary distributed state
+  #
+  # Windows host:
+  #   127.0.0.1:6379
+  #
+  # Docker internal:
+  #   redis:6379
   # ============================================================
   redis:
     image: redis:7-alpine
@@ -149,6 +161,75 @@ services:
       - realstock-local
 
 
+  # ============================================================
+  # OpenTelemetry Collector
+  # ============================================================
+  # Local telemetry gateway for distributed tracing.
+  #
+  # Current Day15 flow:
+  #
+  #   RealStock Python Service
+  #          |
+  #          | OTLP / HTTP
+  #          v
+  #   OpenTelemetry Collector
+  #          |
+  #          v
+  #      Debug Exporter
+  #
+  # Windows host:
+  #   OTLP HTTP:
+  #     http://127.0.0.1:4318
+  #
+  #   Health:
+  #     http://127.0.0.1:13133
+  #
+  # Docker internal:
+  #   OTLP gRPC:
+  #     otel-collector:4317
+  #
+  #   OTLP HTTP:
+  #     otel-collector:4318
+  #
+  # Future AWS architecture:
+  #
+  #   ECS Fargate
+  #        |
+  #        v
+  #   ADOT Collector
+  #        |
+  #        v
+  #      AWS X-Ray
+  #
+  # Application code remains vendor-neutral and exports OTLP
+  # instead of depending directly on X-Ray SDK APIs.
+  # ============================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    container_name: realstock-otel-collector
+    restart: unless-stopped
+
+    command:
+      [
+        "--config=/etc/otelcol-contrib/config.yaml"
+      ]
+
+    volumes:
+      - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+    ports:
+      # OTLP/HTTP.
+      # Python processes running directly on Windows use:
+      #   http://127.0.0.1:4318/v1/traces
+      - "127.0.0.1:4318:4318"
+
+      # Collector health-check extension.
+      - "127.0.0.1:13133:13133"
+
+    networks:
+      - realstock-local
+
+
 # ==============================================================
 # Networks
 # ==============================================================
@@ -162,11 +243,15 @@ networks:
 # Persistent Volumes
 # ==============================================================
 volumes:
+
+  # LocalStack persistent AWS emulator state.
   localstack-data:
     name: realstock-localstack-data
 
+  # PostgreSQL persistent database state.
   postgres-data:
     name: realstock-postgres-data
 
+  # Redis AOF persistent state.
   redis-data:
     name: realstock-redis-data

@@ -1,0 +1,140 @@
+# ==============================================================
+# RealStock Enterprise
+# AWS Distro for OpenTelemetry Collector
+#
+# Environment:
+#   AWS ECS / Production
+#
+# Production trace pipeline:
+#
+#   RealStock ECS Task
+#          |
+#          | OTLP
+#          v
+#   ADOT Collector
+#          |
+#          | AWS IAM Role
+#          v
+#      AWS X-Ray
+#
+#
+# Security principles:
+#
+# - No long-term AK/SK.
+# - Credentials are obtained from the ECS Task Role.
+# - Applications remain vendor-neutral.
+# - AWS-specific exporting is isolated inside the Collector.
+# ==============================================================
+
+
+# ==============================================================
+# Receivers
+# ==============================================================
+receivers:
+
+  otlp:
+    protocols:
+
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+      http:
+        endpoint: 0.0.0.0:4318
+
+
+# ==============================================================
+# Processors
+# ==============================================================
+processors:
+
+  # ------------------------------------------------------------
+  # Memory protection
+  # ------------------------------------------------------------
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+
+  # ------------------------------------------------------------
+  # Resource metadata
+  # ------------------------------------------------------------
+  # Adds stable environment metadata at the Collector boundary.
+  #
+  # Service-specific service.name continues to come from the
+  # application-side OpenTelemetry Resource.
+  # ------------------------------------------------------------
+  resource:
+    attributes:
+
+      - key: deployment.environment.name
+        value: production
+        action: upsert
+
+      - key: cloud.provider
+        value: aws
+        action: upsert
+
+
+  # ------------------------------------------------------------
+  # Batch export
+  # ------------------------------------------------------------
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+
+# ==============================================================
+# Exporters
+# ==============================================================
+exporters:
+
+  # ------------------------------------------------------------
+  # AWS X-Ray Exporter
+  # ------------------------------------------------------------
+  #
+  # AWS_REGION is provided by the ECS runtime.
+  #
+  # Credentials come from the ECS Task Role.
+  #
+  # Required IAM permissions will later be managed by Terraform:
+  #
+  # - xray:PutTraceSegments
+  # - xray:PutTelemetryRecords
+  # ------------------------------------------------------------
+  awsxray:
+    region: ${env:AWS_REGION}
+
+
+# ==============================================================
+# Extensions
+# ==============================================================
+extensions:
+
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+
+# ==============================================================
+# Service
+# ==============================================================
+service:
+
+  extensions:
+    - health_check
+
+
+  pipelines:
+
+    traces:
+
+      receivers:
+        - otlp
+
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+
+      exporters:
+        - awsxray
