@@ -1,0 +1,60 @@
+# ============================================================
+# RealStock Dev Environment
+#
+# Copy this file to a local *.tfvars file only when performing
+# a real AWS deployment.
+#
+# Never commit real secret values.
+# ============================================================
+
+aws_region = "ap-northeast-1"
+
+vpc_cidr = "10.20.0.0/16"
+
+# Dev cost-optimized topology.
+#
+# Production should use:
+#
+# nat_gateway_mode = "per_az"
+
+nat_gateway_mode = "single"
+
+api_desired_count = 2
+api_cpu           = 512
+api_memory        = 1024
+
+enable_http_redirect           = false
+enable_alb_deletion_protection = false
+enable_ecs_exec                = false
+
+
+# ============================================================
+# Required deployment values
+# ============================================================
+
+# Use an immutable Git SHA / release tag.
+#
+# api_image_tag = "<immutable-image-tag>"
+
+
+# Existing ACM certificate in the same AWS region as the ALB.
+#
+# api_certificate_arn = "<acm-certificate-arn>"
+
+
+# Store actual DATABASE_URL / REDIS_URL values in AWS Secrets
+# Manager or SSM Parameter Store.
+#
+# Supply only the secret ARNs here.
+#
+# api_secrets = {
+#   DATABASE_URL = "<secrets-manager-or-ssm-arn>"
+#   REDIS_URL    = "<secrets-manager-or-ssm-arn>"
+# }
+
+
+# Optional customer-managed KMS keys required by those secrets.
+#
+# api_kms_key_arns = [
+#   "<kms-key-arn>",
+# ]
