@@ -79,7 +79,7 @@ output "private_app_subnet_ids" {
 
 
 output "private_data_subnet_ids" {
-  description = "Private data subnet IDs reserved for stateful services."
+  description = "Private data subnet IDs used by stateful services."
 
   value = (
     module.network.private_data_subnet_ids
@@ -198,5 +198,118 @@ output "api_log_group_name" {
 
   value = (
     module.api_ecs.log_group_name
+  )
+}
+
+
+# ============================================================
+# Aurora PostgreSQL
+# ============================================================
+
+output "database_cluster_id" {
+  description = "Aurora PostgreSQL cluster identifier."
+
+  value = (
+    module.database.cluster_id
+  )
+}
+
+
+output "database_cluster_arn" {
+  description = "Aurora PostgreSQL cluster ARN."
+
+  value = (
+    module.database.cluster_arn
+  )
+}
+
+
+# Stable environment-level database endpoint contract.
+#
+# This currently points to the Aurora writer endpoint.
+# Application traffic should normally use database_proxy_endpoint.
+output "database_endpoint" {
+  description = "Aurora PostgreSQL writer endpoint."
+
+  value = (
+    module.database.endpoint
+  )
+}
+
+
+output "database_writer_endpoint" {
+  description = "Aurora PostgreSQL writer endpoint."
+
+  value = (
+    module.database.endpoint
+  )
+}
+
+
+output "database_reader_endpoint" {
+  description = "Aurora PostgreSQL reader endpoint."
+
+  value = (
+    module.database.reader_endpoint
+  )
+}
+
+
+output "database_security_group_id" {
+  description = "Security group attached to Aurora PostgreSQL."
+
+  value = (
+    module.database.security_group_id
+  )
+}
+
+
+output "database_master_secret_arn" {
+  description = "AWS-managed Secrets Manager ARN for Aurora master credentials."
+
+  value = (
+    module.database.master_user_secret_arn
+  )
+
+  sensitive = true
+}
+
+
+# ============================================================
+# RDS Proxy
+# ============================================================
+
+output "database_proxy_name" {
+  description = "RDS Proxy name."
+
+  value = (
+    module.database_proxy.proxy_name
+  )
+}
+
+
+output "database_proxy_arn" {
+  description = "RDS Proxy ARN."
+
+  value = (
+    module.database_proxy.proxy_arn
+  )
+}
+
+
+output "database_proxy_endpoint" {
+  description = "RDS Proxy endpoint used by application database traffic."
+
+  value = (
+    module.database_proxy.endpoint
+  )
+}
+
+
+output "database_proxy_security_group_id" {
+  description = "Security group attached to RDS Proxy."
+
+  value = (
+    module.database_proxy.security_group_id
   )
 }

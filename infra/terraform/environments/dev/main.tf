@@ -121,8 +121,8 @@ locals {
   # ----------------------------------------------------------
   # ECS Execution-Role Secret Permissions
   #
-  # Derive exact execution-role permissions from the same secret
-  # ARNs supplied to the ECS task definition.
+  # Derive exact execution-role permissions from the same
+  # secret ARNs supplied to the ECS task definition.
   # ----------------------------------------------------------
 
   api_secretsmanager_secret_arns = distinct(
@@ -243,6 +243,15 @@ module "network" {
 
 # ============================================================
 # Application Network Security
+#
+# Public:
+#   Internet -> ALB HTTPS
+#
+# Private application:
+#   ALB -> ECS :8000
+#
+# Database-specific security rules are created by the
+# Aurora / RDS Proxy modules below.
 # ============================================================
 
 module "network_security" {
@@ -270,6 +279,181 @@ module "network_security" {
     {
       Component = "NetworkSecurity"
       Service   = local.api_service_name
+    },
+  )
+}
+
+
+# ============================================================
+# Aurora PostgreSQL
+#
+# Deployment:
+#
+#   private-data AZ-A
+#   private-data AZ-B
+#
+# Security:
+#
+#   Internet ------X------> Aurora
+#   ALB -----------X------> Aurora
+#   ECS -----------X------> Aurora
+#
+# Application DB traffic must flow through RDS Proxy.
+#
+# Credentials:
+#
+# AWS manages the Aurora master password in Secrets Manager.
+# No plaintext database password is stored in this environment.
+# ============================================================
+
+module "database" {
+  source = "../../modules/aurora"
+
+  name = (
+    "${local.environment_name}-database"
+  )
+
+  vpc_id = (
+    module.network.vpc_id
+  )
+
+  subnet_ids = (
+    module.network.private_data_subnet_ids
+  )
+
+  # Direct application access to Aurora is deliberately disabled.
+  # RDS Proxy creates the approved database ingress path.
+  allowed_security_group_ids = []
+
+  database_name = (
+    var.database_name
+  )
+
+  master_username = (
+    var.database_master_username
+  )
+
+  engine_version = (
+    var.database_engine_version
+  )
+
+  instance_class = (
+    var.database_instance_class
+  )
+
+  instance_count = (
+    var.database_instance_count
+  )
+
+  port = 5432
+
+  backup_retention_days = (
+    var.database_backup_retention_days
+  )
+
+  deletion_protection = (
+    var.database_deletion_protection
+  )
+
+  skip_final_snapshot = (
+    var.database_skip_final_snapshot
+  )
+
+  kms_key_arn = (
+    var.database_kms_key_arn
+  )
+
+  performance_insights_enabled = true
+
+  monitoring_interval = 0
+
+  tags = merge(
+    local.common_tags,
+    {
+      Component = "RelationalDatabase"
+      Tier      = "PrivateData"
+    },
+  )
+}
+
+
+# ============================================================
+# RDS Proxy
+#
+# Application database path:
+#
+# ECS SG
+#   |
+#   | TCP 5432
+#   v
+# RDS Proxy SG
+#   |
+#   | TCP 5432
+#   v
+# Aurora SG
+#
+# RDS Proxy and Aurora both reside in private-data subnets.
+#
+# The proxy uses the AWS-managed Aurora master credential secret.
+# TLS is mandatory on the application -> proxy connection.
+# ============================================================
+
+module "database_proxy" {
+  source = "../../modules/rds-proxy"
+
+  name = (
+    "${local.environment_name}-database"
+  )
+
+  vpc_id = (
+    module.network.vpc_id
+  )
+
+  subnet_ids = (
+    module.network.private_data_subnet_ids
+  )
+
+  client_security_group_ids = [
+    module.network_security.ecs_security_group_id,
+  ]
+
+  target_security_group_id = (
+    module.database.security_group_id
+  )
+
+  db_cluster_identifier = (
+    module.database.cluster_id
+  )
+
+  secret_arn = (
+    module.database.master_user_secret_arn
+  )
+
+  # Empty means the RDS Proxy role does not receive kms:Decrypt.
+  #
+  # Add an explicit customer-managed Secrets Manager KMS key ARN
+  # here when the database credential secret is moved to a CMK.
+  kms_key_arns = []
+
+  port = 5432
+
+  require_tls = true
+
+  iam_auth = "DISABLED"
+
+  idle_client_timeout = 1800
+
+  connection_borrow_timeout = 120
+
+  max_connections_percent = 90
+
+  max_idle_connections_percent = 50
+
+  tags = merge(
+    local.common_tags,
+    {
+      Component = "DatabaseProxy"
+      Tier      = "PrivateDataAccess"
     },
   )
 }
@@ -393,6 +577,11 @@ module "api_alb" {
 # VPC --------------------> private app subnets
 # Security ---------------> ECS security group
 # ALB --------------------> target group
+#
+# Database network:
+#
+# ECS SG -----------------> RDS Proxy SG
+# RDS Proxy SG -----------> Aurora SG
 # ============================================================
 
 module "api_ecs" {
@@ -467,6 +656,10 @@ module "api_ecs" {
     var.api_environment_variables,
   )
 
+  # DATABASE_URL / REDIS_URL remain secret references.
+  #
+  # DATABASE_URL will later be backed by an application-specific
+  # database credential rather than committing credentials here.
   secrets = (
     var.api_secrets
   )

@@ -320,3 +320,122 @@ EOT
   nullable  = true
   sensitive = true
 }
+
+# ============================================================
+# Aurora PostgreSQL / RDS Proxy
+# ============================================================
+
+variable "database_name" {
+  description = "Initial Aurora PostgreSQL database name."
+  type        = string
+  default     = "realstock"
+
+  validation {
+    condition = (
+      length(trimspace(var.database_name)) > 0
+    )
+
+    error_message = (
+      "database_name must not be empty."
+    )
+  }
+}
+
+
+variable "database_master_username" {
+  description = "Aurora PostgreSQL master username."
+  type        = string
+  default     = "realstock_admin"
+
+  validation {
+    condition = (
+      length(trimspace(var.database_master_username)) > 0
+    )
+
+    error_message = (
+      "database_master_username must not be empty."
+    )
+  }
+}
+
+
+variable "database_engine_version" {
+  description = "Optional Aurora PostgreSQL engine version."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+
+variable "database_instance_class" {
+  description = "Aurora PostgreSQL instance class."
+  type        = string
+  default     = "db.t4g.medium"
+
+  validation {
+    condition = (
+      length(trimspace(var.database_instance_class)) > 0
+    )
+
+    error_message = (
+      "database_instance_class must not be empty."
+    )
+  }
+}
+
+
+variable "database_instance_count" {
+  description = "Number of Aurora instances."
+  type        = number
+  default     = 2
+
+  validation {
+    condition = (
+      var.database_instance_count >= 2
+    )
+
+    error_message = (
+      "database_instance_count must be at least 2 for HA."
+    )
+  }
+}
+
+
+variable "database_backup_retention_days" {
+  description = "Aurora automated backup retention period."
+  type        = number
+  default     = 7
+
+  validation {
+    condition = (
+      var.database_backup_retention_days >= 1 &&
+      var.database_backup_retention_days <= 35
+    )
+
+    error_message = (
+      "database_backup_retention_days must be between 1 and 35."
+    )
+  }
+}
+
+
+variable "database_deletion_protection" {
+  description = "Protect the dev Aurora cluster from accidental deletion."
+  type        = bool
+  default     = false
+}
+
+
+variable "database_skip_final_snapshot" {
+  description = "Skip final snapshot when destroying the dev Aurora cluster."
+  type        = bool
+  default     = true
+}
+
+
+variable "database_kms_key_arn" {
+  description = "Optional customer-managed KMS key ARN for Aurora storage."
+  type        = string
+  default     = null
+  nullable    = true
+}
