@@ -313,3 +313,79 @@ output "database_proxy_security_group_id" {
     module.database_proxy.security_group_id
   )
 }
+
+
+# ============================================================
+# ElastiCache Redis
+# ============================================================
+
+output "redis_replication_group_id" {
+  description = "ElastiCache Redis replication group identifier."
+
+  value = (
+    module.redis.replication_group_id
+  )
+}
+
+
+output "redis_replication_group_arn" {
+  description = "ElastiCache Redis replication group ARN."
+
+  value = (
+    module.redis.replication_group_arn
+  )
+}
+
+
+output "redis_primary_endpoint" {
+  description = "Primary Redis endpoint address used for read/write traffic."
+
+  value = (
+    module.redis.primary_endpoint_address
+  )
+}
+
+
+output "redis_reader_endpoint" {
+  description = "Reader Redis endpoint address used for read-only traffic."
+
+  value = (
+    module.redis.reader_endpoint_address
+  )
+}
+
+
+output "redis_port" {
+  description = "Redis listener port."
+
+  value = (
+    module.redis.port
+  )
+}
+
+
+output "redis_security_group_id" {
+  description = "Security group attached to the ElastiCache Redis replication group."
+
+  value = (
+    module.redis.security_group_id
+  )
+}
+
+
+output "redis_subnet_group_name" {
+  description = "ElastiCache subnet group name used by Redis."
+
+  value = (
+    module.redis.subnet_group_name
+  )
+}
+
+
+output "redis_url" {
+  description = "TLS Redis URL used by the API runtime."
+
+  value = (
+    "rediss://${module.redis.primary_endpoint_address}:${module.redis.port}"
+  )
+}

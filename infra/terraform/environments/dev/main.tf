@@ -40,11 +40,6 @@ locals {
 
   # ----------------------------------------------------------
   # Availability Zones
-  #
-  # Explicit environment override wins.
-  #
-  # Otherwise select two currently available AZs from the
-  # configured AWS region.
   # ----------------------------------------------------------
 
   availability_zones = (
@@ -108,9 +103,6 @@ locals {
 
   # ----------------------------------------------------------
   # API Image
-  #
-  # ECR repository uses IMMUTABLE tags.
-  # The root environment supplies an explicit release tag.
   # ----------------------------------------------------------
 
   api_image_uri = (
@@ -120,9 +112,6 @@ locals {
 
   # ----------------------------------------------------------
   # ECS Execution-Role Secret Permissions
-  #
-  # Derive exact execution-role permissions from the same
-  # secret ARNs supplied to the ECS task definition.
   # ----------------------------------------------------------
 
   api_secretsmanager_secret_arns = distinct(
@@ -250,8 +239,12 @@ module "network" {
 # Private application:
 #   ALB -> ECS :8000
 #
-# Database-specific security rules are created by the
-# Aurora / RDS Proxy modules below.
+# Data paths:
+#   ECS -> RDS Proxy :5432
+#   ECS -> Redis     :6379
+#
+# Database/cache-specific security rules are created by the
+# respective Terraform modules.
 # ============================================================
 
 module "network_security" {
@@ -321,8 +314,6 @@ module "database" {
     module.network.private_data_subnet_ids
   )
 
-  # Direct application access to Aurora is deliberately disabled.
-  # RDS Proxy creates the approved database ingress path.
   allowed_security_group_ids = []
 
   database_name = (
@@ -384,7 +375,7 @@ module "database" {
 #
 # ECS SG
 #   |
-#   | TCP 5432
+#   | TCP 5432 / TLS
 #   v
 # RDS Proxy SG
 #   |
@@ -393,9 +384,6 @@ module "database" {
 # Aurora SG
 #
 # RDS Proxy and Aurora both reside in private-data subnets.
-#
-# The proxy uses the AWS-managed Aurora master credential secret.
-# TLS is mandatory on the application -> proxy connection.
 # ============================================================
 
 module "database_proxy" {
@@ -429,10 +417,6 @@ module "database_proxy" {
     module.database.master_user_secret_arn
   )
 
-  # Empty means the RDS Proxy role does not receive kms:Decrypt.
-  #
-  # Add an explicit customer-managed Secrets Manager KMS key ARN
-  # here when the database credential secret is moved to a CMK.
   kms_key_arns = []
 
   port = 5432
@@ -454,6 +438,93 @@ module "database_proxy" {
     {
       Component = "DatabaseProxy"
       Tier      = "PrivateDataAccess"
+    },
+  )
+}
+
+
+# ============================================================
+# ElastiCache Redis
+#
+# Runtime path:
+#
+# ECS SG
+#   |
+#   | TLS / TCP 6379
+#   v
+# Redis SG
+#   |
+#   +-- Primary
+#   |
+#   +-- Replica
+#
+# Redis is deployed only into private-data subnets.
+#
+# Security:
+#
+# - No public CIDR access
+# - Security-group referenced access only
+# - TLS in transit
+# - Encryption at rest
+# - Optional customer-managed KMS key
+#
+# HA:
+#
+# - Multi-AZ enabled
+# - Automatic failover enabled
+# - At least two cache nodes
+# ============================================================
+
+module "redis" {
+  source = "../../modules/redis"
+
+  name = (
+    "${local.environment_name}-cache"
+  )
+
+  vpc_id = (
+    module.network.vpc_id
+  )
+
+  subnet_ids = (
+    module.network.private_data_subnet_ids
+  )
+
+  client_security_group_ids = [
+    module.network_security.ecs_security_group_id,
+  ]
+
+  engine_version = (
+    var.redis_engine_version
+  )
+
+  node_type = (
+    var.redis_node_type
+  )
+
+  num_cache_clusters = (
+    var.redis_num_cache_clusters
+  )
+
+  port = 6379
+
+  snapshot_retention_days = (
+    var.redis_snapshot_retention_days
+  )
+
+  kms_key_arn = (
+    var.redis_kms_key_arn
+  )
+
+  apply_immediately = (
+    var.redis_apply_immediately
+  )
+
+  tags = merge(
+    local.common_tags,
+    {
+      Component = "DistributedCache"
+      Tier      = "PrivateData"
     },
   )
 }
@@ -582,6 +653,14 @@ module "api_alb" {
 #
 # ECS SG -----------------> RDS Proxy SG
 # RDS Proxy SG -----------> Aurora SG
+#
+# Cache network:
+#
+# ECS SG -----------------> Redis SG
+#
+# Redis uses TLS:
+#
+# rediss://<primary-endpoint>:6379
 # ============================================================
 
 module "api_ecs" {
@@ -652,14 +731,18 @@ module "api_ecs" {
       APP_ENV    = local.environment
       APP_NAME   = local.api_runtime_name
       AWS_REGION = var.aws_region
+
+      REDIS_URL = (
+        "rediss://${module.redis.primary_endpoint_address}:${module.redis.port}"
+      )
     },
     var.api_environment_variables,
   )
 
-  # DATABASE_URL / REDIS_URL remain secret references.
+  # DATABASE_URL remains an external secret reference.
   #
-  # DATABASE_URL will later be backed by an application-specific
-  # database credential rather than committing credentials here.
+  # REDIS_URL is generated directly from the Terraform-managed
+  # ElastiCache endpoint and is non-secret runtime configuration.
   secrets = (
     var.api_secrets
   )
