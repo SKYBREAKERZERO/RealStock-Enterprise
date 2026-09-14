@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -23,7 +23,7 @@ from libs.database.models.base import Base
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class PortfolioModel(Base):
@@ -71,7 +71,7 @@ class PortfolioModel(Base):
         onupdate=utc_now,
     )
 
-    positions: Mapped[list["PositionModel"]] = relationship(
+    positions: Mapped[list[PositionModel]] = relationship(
         back_populates="portfolio",
         cascade="all, delete-orphan",
         lazy="selectin",

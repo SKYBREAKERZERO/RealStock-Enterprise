@@ -16,6 +16,7 @@ dependencies = [
 
     "SQLAlchemy>=2.0,<3",
     "psycopg[binary]>=3.3,<4",
+    "alembic>=1.13,<2",
 
     "redis>=7,<8",
 
