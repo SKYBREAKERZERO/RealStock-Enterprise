@@ -281,11 +281,9 @@ def test_missing_user_header_returns_401() -> None:
     )
 
     response = client.get(
-        
             "/api/v1/portfolios/"
             f"{portfolio['portfolio_id']}"
             "/valuation"
-        
     )
 
     assert response.status_code == 401
