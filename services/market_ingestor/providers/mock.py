@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from itertools import count
-from typing import Sequence
 
 from libs.domain.market import (
     Market,
@@ -13,7 +13,6 @@ from libs.domain.market import (
     MarketTrade,
     TradeSide,
 )
-
 
 PRICE_QUANTUM = Decimal("0.01")
 
@@ -184,7 +183,7 @@ class MockMarketDataProvider:
             timestamp
             if timestamp is not None
             else datetime.now(
-                timezone.utc
+                UTC
             )
         )
 
@@ -249,7 +248,7 @@ class MockMarketDataProvider:
             timestamp
             if timestamp is not None
             else datetime.now(
-                timezone.utc
+                UTC
             )
         )
 

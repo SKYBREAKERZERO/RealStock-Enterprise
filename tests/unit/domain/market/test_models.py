@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -16,7 +16,6 @@ from libs.domain.market import (
     TradeSide,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -26,7 +25,7 @@ pytestmark = pytest.mark.unit
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def build_trade(**overrides: object) -> MarketTrade:
@@ -190,7 +189,7 @@ def test_trade_timestamp_is_normalized_to_utc() -> None:
         timestamp=timestamp,
     )
 
-    assert trade.timestamp.tzinfo == timezone.utc
+    assert trade.timestamp.tzinfo == UTC
 
     assert trade.timestamp == datetime(
         2026,
@@ -199,7 +198,7 @@ def test_trade_timestamp_is_normalized_to_utc() -> None:
         12,
         0,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
 

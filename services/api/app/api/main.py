@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from libs.config import get_settings
 from services.api.app.api.health import router as health_router
 
-
 settings = get_settings()
 
 

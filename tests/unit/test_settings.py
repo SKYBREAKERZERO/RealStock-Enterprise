@@ -1,4 +1,5 @@
 import pytest
+
 from libs.config import get_settings
 
 pytestmark = pytest.mark.unit

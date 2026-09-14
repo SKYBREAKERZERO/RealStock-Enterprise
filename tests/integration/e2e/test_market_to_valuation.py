@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from decimal import Decimal
 
@@ -33,7 +33,6 @@ from services.market_ingestor.producer import (
 from services.market_ingestor.service import (
     MarketIngestorService,
 )
-
 
 pytestmark = pytest.mark.integration
 
@@ -171,7 +170,7 @@ def build_quote() -> MarketQuote:
             5,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

@@ -9,7 +9,6 @@ from libs.aws import get_sts_client
 from libs.cache import get_redis_client
 from libs.database import get_engine
 
-
 router = APIRouter(
     tags=["health"],
 )

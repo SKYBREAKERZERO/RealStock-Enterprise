@@ -17,7 +17,6 @@ from libs.domain.portfolio import (
     Position,
 )
 
-
 pytestmark = pytest.mark.integration
 
 

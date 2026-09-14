@@ -3,7 +3,6 @@ from sqlalchemy import text
 
 from libs.database import get_engine
 
-
 pytestmark = pytest.mark.integration
 
 

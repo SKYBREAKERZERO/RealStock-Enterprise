@@ -7,7 +7,6 @@ from services.api.portfolio.valuation import (
     PortfolioValuationService,
 )
 
-
 __all__ = [
     "PortfolioNotFoundError",
     "PortfolioService",

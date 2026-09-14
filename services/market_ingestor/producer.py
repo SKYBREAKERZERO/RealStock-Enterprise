@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from libs.aws import get_kinesis_client
 from libs.events import EventEnvelope
 
-
 DEFAULT_STREAM_NAME = "realstock-market-events-local"
 
 

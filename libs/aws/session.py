@@ -7,7 +7,6 @@ from boto3.session import Session
 
 from libs.config import get_settings
 
-
 LOCALSTACK_ACCESS_KEY = "test"
 LOCALSTACK_SECRET_KEY = "test"
 

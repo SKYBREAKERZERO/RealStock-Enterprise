@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -25,7 +25,6 @@ from services.market_ingestor.runner import (
     create_trade_event,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -42,7 +41,7 @@ TEST_TIMESTAMP = datetime(
     12,
     0,
     0,
-    tzinfo=timezone.utc,
+    tzinfo=UTC,
 )
 
 

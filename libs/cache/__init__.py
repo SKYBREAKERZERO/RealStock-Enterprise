@@ -5,7 +5,6 @@ from libs.cache.redis_client import (
     get_redis_client,
 )
 
-
 __all__ = [
     "MarketQuoteCache",
     "get_redis_client",

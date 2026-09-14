@@ -6,7 +6,6 @@ from botocore.exceptions import ClientError
 from libs.aws import get_s3_client
 from libs.config import get_settings
 
-
 pytestmark = pytest.mark.integration
 
 TEST_BUCKET = "realstock-market-data-local"

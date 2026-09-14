@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from decimal import Decimal
 
@@ -23,7 +23,6 @@ from libs.domain.portfolio import (
 from services.api.portfolio import (
     PortfolioValuationService,
 )
-
 
 pytestmark = pytest.mark.integration
 
@@ -75,7 +74,7 @@ def build_quote() -> MarketQuote:
             3,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from decimal import Decimal
 
@@ -24,7 +24,6 @@ from libs.domain.market import (
     MarketQuote,
 )
 from services.api.main import app
-
 
 pytestmark = pytest.mark.integration
 
@@ -136,7 +135,7 @@ def cache_aapl_quote() -> None:
                 2,
                 0,
                 0,
-                tzinfo=timezone.utc,
+                tzinfo=UTC,
             ),
         )
     )
@@ -282,11 +281,11 @@ def test_missing_user_header_returns_401() -> None:
     )
 
     response = client.get(
-        (
+        
             "/api/v1/portfolios/"
             f"{portfolio['portfolio_id']}"
             "/valuation"
-        )
+        
     )
 
     assert response.status_code == 401

@@ -35,7 +35,6 @@ from services.api.schemas.valuation import (
     PortfolioValuationResponse,
 )
 
-
 router = APIRouter(
     prefix="/api/v1/portfolios",
     tags=["portfolios"],

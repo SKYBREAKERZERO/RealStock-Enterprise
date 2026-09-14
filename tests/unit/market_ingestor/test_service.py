@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from decimal import Decimal
 from unittest.mock import Mock
@@ -24,7 +24,6 @@ from services.market_ingestor.service import (
     MarketIngestorService,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -43,7 +42,7 @@ def build_quote() -> MarketQuote:
             4,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 
@@ -63,7 +62,7 @@ def build_trade() -> MarketTrade:
             4,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

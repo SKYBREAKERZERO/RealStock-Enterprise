@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -9,13 +9,9 @@ from pydantic import ValidationError
 from libs.domain.market import Market
 from libs.domain.portfolio import (
     Currency,
-    DuplicatePositionError,
-    InvalidPortfolioNameError,
-    InvalidUserIdError,
     Portfolio,
     Position,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -198,11 +194,11 @@ def test_position_normalizes_timestamp_to_utc() -> None:
             12,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
     )
 
     assert (
         position.created_at.tzinfo
-        is timezone.utc
+        is UTC
     )

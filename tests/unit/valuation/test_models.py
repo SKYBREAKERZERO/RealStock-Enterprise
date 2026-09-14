@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from decimal import Decimal
 
@@ -20,7 +20,6 @@ from libs.domain.valuation import (
     PortfolioValuation,
     PositionValuation,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -59,7 +58,7 @@ def build_quote(
             1,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

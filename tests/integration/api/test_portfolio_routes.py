@@ -11,7 +11,6 @@ from libs.database.models import (
 )
 from services.api.main import app
 
-
 pytestmark = pytest.mark.integration
 
 

@@ -14,7 +14,6 @@ from services.market_ingestor.producer import (
     PublishResult,
 )
 
-
 pytestmark = pytest.mark.integration
 
 

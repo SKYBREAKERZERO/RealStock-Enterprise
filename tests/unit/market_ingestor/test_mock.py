@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -16,7 +16,6 @@ from services.market_ingestor.providers.mock import (
     MockInstrument,
     MockMarketDataProvider,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -270,7 +269,7 @@ def test_generate_trade_preserves_timestamp() -> None:
         12,
         0,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
     provider = MockMarketDataProvider(
@@ -398,7 +397,7 @@ def test_generate_quote_preserves_timestamp() -> None:
         12,
         0,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
 

@@ -47,7 +47,6 @@ from services.risk_engine import (
     RiskEngineService,
 )
 
-
 pytestmark = pytest.mark.integration
 
 

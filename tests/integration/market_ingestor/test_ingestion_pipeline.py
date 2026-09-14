@@ -19,7 +19,6 @@ from services.market_ingestor.runner import (
     RunnerConfig,
 )
 
-
 pytestmark = pytest.mark.integration
 
 

@@ -12,7 +12,6 @@ from libs.domain.market import (
     MarketQuote,
 )
 
-
 DEFAULT_QUOTE_TTL_SECONDS = 30
 
 QUOTE_KEY_PREFIX = "realstock:quote"

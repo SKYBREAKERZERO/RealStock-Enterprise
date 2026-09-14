@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -13,7 +13,6 @@ from libs.domain.market import (
     Market,
     MarketQuote,
 )
-
 
 pytestmark = pytest.mark.integration
 
@@ -35,7 +34,7 @@ def build_quote() -> MarketQuote:
             0,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

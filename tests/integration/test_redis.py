@@ -6,7 +6,6 @@ import pytest
 
 from libs.cache import get_redis_client
 
-
 pytestmark = pytest.mark.integration
 
 

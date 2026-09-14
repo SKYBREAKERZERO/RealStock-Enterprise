@@ -3,10 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import signal
-import sys
-import time
 from dataclasses import dataclass
-from decimal import Decimal
 from threading import Event
 from typing import Literal
 
@@ -21,7 +18,6 @@ from services.market_ingestor.producer import (
 from services.market_ingestor.providers.mock import (
     MockMarketDataProvider,
 )
-
 
 # ============================================================
 # Constants

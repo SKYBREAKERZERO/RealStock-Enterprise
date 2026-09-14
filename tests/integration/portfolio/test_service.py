@@ -16,7 +16,6 @@ from services.api.portfolio import (
     PositionAlreadyExistsError,
 )
 
-
 pytestmark = pytest.mark.integration
 
 

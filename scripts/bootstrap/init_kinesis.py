@@ -5,7 +5,6 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 if str(ROOT_DIR) not in sys.path:
@@ -13,7 +12,6 @@ if str(ROOT_DIR) not in sys.path:
 
 
 from libs.aws import get_kinesis_client  # noqa: E402
-
 
 STREAM_NAME = "realstock-market-events-local"
 

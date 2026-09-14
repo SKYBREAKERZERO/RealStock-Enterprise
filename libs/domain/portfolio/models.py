@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -61,13 +61,13 @@ class Position(BaseModel):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
@@ -106,7 +106,7 @@ class Position(BaseModel):
             )
 
         return value.astimezone(
-            timezone.utc
+            UTC
         )
 
     @property
@@ -158,13 +158,13 @@ class Portfolio(BaseModel):
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
@@ -223,7 +223,7 @@ class Portfolio(BaseModel):
             )
 
         return value.astimezone(
-            timezone.utc
+            UTC
         )
 
     @model_validator(mode="after")

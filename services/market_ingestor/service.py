@@ -17,7 +17,6 @@ from services.market_ingestor.producer import (
     PublishResult,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

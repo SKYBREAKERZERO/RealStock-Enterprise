@@ -5,7 +5,6 @@ from uuid import UUID
 from libs.domain.market import MarketQuote, MarketTrade
 from libs.events.envelope import EventEnvelope
 
-
 MARKET_TRADE_RECEIVED = "market.trade.received"
 MARKET_QUOTE_RECEIVED = "market.quote.received"
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -22,7 +22,6 @@ from libs.events.market import (
     create_market_trade_event,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -41,7 +40,7 @@ def build_trade() -> MarketTrade:
             12,
             0,
             0,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 
@@ -61,7 +60,7 @@ def build_quote() -> MarketQuote:
             12,
             0,
             1,
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
     )
 

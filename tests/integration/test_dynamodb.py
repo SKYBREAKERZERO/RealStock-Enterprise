@@ -6,7 +6,6 @@ from botocore.exceptions import ClientError
 
 from libs.aws import get_dynamodb_client
 
-
 pytestmark = pytest.mark.integration
 
 TABLE_NAME = "realstock-idempotency-local"

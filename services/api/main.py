@@ -7,7 +7,6 @@ from services.api.routes.portfolio import (
     router as portfolio_router,
 )
 
-
 app = FastAPI(
     title="RealStock Enterprise API",
     version="0.2.0",

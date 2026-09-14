@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -99,7 +99,7 @@ class MarketQuote(BaseModel):
             )
 
         return value.astimezone(
-            timezone.utc
+            UTC
         )
 
     @model_validator(mode="after")
@@ -229,7 +229,7 @@ class MarketTrade(BaseModel):
             )
 
         return value.astimezone(
-            timezone.utc
+            UTC
         )
 
     @property
