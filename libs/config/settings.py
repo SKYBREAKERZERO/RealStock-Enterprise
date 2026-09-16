@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     # PostgreSQL
     # ---------------------------------------------------------
 
+    # AWS Secrets Manager secret identifier.
+    #
+    # Intended for dev/staging/prod environments where database
+    # credentials are retrieved at runtime rather than stored
+    # directly in application environment variables.
+    database_secret_id: str | None = Field(
+        default=None,
+        validation_alias="DATABASE_SECRET_ID",
+    )
+
     # Legacy database configuration.
     #
     # DATABASE_URL remains supported for backward compatibility,
@@ -140,6 +150,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_database_configuration(self) -> Settings:
+        """
+        Validate supported database configuration modes.
+
+        Supported modes:
+
+        1. Legacy DATABASE_URL
+        2. Structured DATABASE_* configuration
+        3. DATABASE_SECRET_ID for non-local AWS environments
+
+        Structured DATABASE_* configuration takes precedence over
+        DATABASE_URL when any structured credential field is supplied.
+
+        Settings does not access AWS Secrets Manager directly.
+        DATABASE_SECRET_ID only identifies the secret that the database
+        credential resolver will retrieve later.
+        """
 
         structured_database_configured = any(
             value is not None
@@ -151,93 +177,123 @@ class Settings(BaseSettings):
             )
         )
 
-        # -----------------------------------------------------
-        # Legacy DATABASE_URL mode
-        # -----------------------------------------------------
-
-        if not structured_database_configured:
-            if not self.database_url.strip():
-                raise ValueError(
-                    "Either DATABASE_URL or structured DATABASE_* "
-                    "configuration must be provided."
-                )
-
-            return self
+        secret_configured = bool(
+            self.database_secret_id
+            and self.database_secret_id.strip()
+        )
 
         # -----------------------------------------------------
         # Structured DATABASE_* mode
         # -----------------------------------------------------
 
-        missing_fields: list[str] = []
+        if structured_database_configured:
+            missing_fields: list[str] = []
 
-        if (
-            self.database_host is None
-            or not self.database_host.strip()
-        ):
-            missing_fields.append("DATABASE_HOST")
+            if (
+                self.database_host is None
+                or not self.database_host.strip()
+            ):
+                missing_fields.append("DATABASE_HOST")
 
-        if (
-            self.database_name is None
-            or not self.database_name.strip()
-        ):
-            missing_fields.append("DATABASE_NAME")
+            if (
+                self.database_name is None
+                or not self.database_name.strip()
+            ):
+                missing_fields.append("DATABASE_NAME")
 
-        if (
-            self.database_username is None
-            or not self.database_username.strip()
-        ):
-            missing_fields.append("DATABASE_USERNAME")
+            if (
+                self.database_username is None
+                or not self.database_username.strip()
+            ):
+                missing_fields.append("DATABASE_USERNAME")
 
-        if (
-            self.database_password is None
-            or not self.database_password.get_secret_value()
-        ):
-            missing_fields.append("DATABASE_PASSWORD")
+            if (
+                self.database_password is None
+                or not self.database_password.get_secret_value()
+            ):
+                missing_fields.append("DATABASE_PASSWORD")
 
-        if missing_fields:
-            raise ValueError(
-                "Incomplete structured database configuration. "
-                f"Missing: {', '.join(missing_fields)}"
+            if missing_fields:
+                raise ValueError(
+                    "Incomplete structured database configuration. "
+                    f"Missing: {', '.join(missing_fields)}"
+                )
+
+            # The checks above guarantee these values are populated.
+            assert self.database_host is not None
+            assert self.database_name is not None
+            assert self.database_username is not None
+            assert self.database_password is not None
+
+            host = self.database_host.strip()
+            database_name = quote_plus(
+                self.database_name.strip()
+            )
+            username = quote_plus(
+                self.database_username.strip()
+            )
+            password = quote_plus(
+                self.database_password.get_secret_value()
+            )
+            sslmode = quote_plus(
+                self.database_sslmode.strip()
             )
 
-        # The checks above guarantee these values are populated.
-        assert self.database_host is not None
-        assert self.database_name is not None
-        assert self.database_username is not None
-        assert self.database_password is not None
+            resolved_database_url = (
+                "postgresql+psycopg://"
+                f"{username}:{password}"
+                f"@{host}:{self.database_port}"
+                f"/{database_name}"
+                f"?sslmode={sslmode}"
+            )
 
-        host = self.database_host.strip()
-        database_name = quote_plus(
-            self.database_name.strip()
-        )
-        username = quote_plus(
-            self.database_username.strip()
-        )
-        password = quote_plus(
-            self.database_password.get_secret_value()
-        )
-        sslmode = quote_plus(
-            self.database_sslmode.strip()
-        )
+            # Settings is frozen to prevent accidental runtime
+            # mutation. This controlled assignment resolves the
+            # effective URL during model construction.
+            object.__setattr__(
+                self,
+                "database_url",
+                resolved_database_url,
+            )
 
-        resolved_database_url = (
-            "postgresql+psycopg://"
-            f"{username}:{password}"
-            f"@{host}:{self.database_port}"
-            f"/{database_name}"
-            f"?sslmode={sslmode}"
-        )
+            return self
 
-        # Settings is frozen to prevent accidental runtime mutation.
-        # This controlled internal assignment resolves the effective
-        # database URL during model construction.
-        object.__setattr__(
-            self,
-            "database_url",
-            resolved_database_url,
-        )
+        # -----------------------------------------------------
+        # AWS Secrets Manager mode
+        # -----------------------------------------------------
 
-        return self
+        if secret_configured:
+            if self.app_env == "local":
+                if not self.database_url.strip():
+                    raise ValueError(
+                        "Local environments require DATABASE_URL or "
+                        "structured DATABASE_* configuration. "
+                        "DATABASE_SECRET_ID alone is not sufficient."
+                    )
+
+                return self
+
+            # Non-local environments may intentionally have no
+            # DATABASE_URL. credentials.py will retrieve the secret
+            # and construct the effective database URL.
+            return self
+
+        # -----------------------------------------------------
+        # Legacy DATABASE_URL mode
+        # -----------------------------------------------------
+
+        if self.database_url.strip():
+            return self
+
+        # -----------------------------------------------------
+        # No valid database configuration
+        # -----------------------------------------------------
+
+        raise ValueError(
+            "Database configuration is required. Provide DATABASE_URL, "
+            "structured DATABASE_* configuration, or DATABASE_SECRET_ID "
+            "for a non-local environment."
+        )
 
     # ---------------------------------------------------------
     # Environment validation
