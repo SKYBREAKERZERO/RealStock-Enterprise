@@ -11,6 +11,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from libs.database import get_db_session
+from libs.database.unit_of_work import SqlAlchemyUnitOfWork
 from services.api.portfolio.service import (
     PortfolioService,
 )
@@ -64,9 +65,14 @@ def get_portfolio_service(
         Depends(get_db_session),
     ],
 ) -> PortfolioService:
-    return PortfolioService(
+    unit_of_work = SqlAlchemyUnitOfWork(
         session
     )
+
+    return PortfolioService(
+        unit_of_work
+    )
+
 
 def get_portfolio_valuation_service(
 ) -> PortfolioValuationService:

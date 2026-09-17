@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from libs.database import get_engine
 from libs.database.models import Base
+from libs.database.unit_of_work import SqlAlchemyUnitOfWork
 from libs.domain.market import Market
 from libs.domain.portfolio import Currency
 from services.api.portfolio import (
@@ -56,10 +57,31 @@ def db_session() -> Session:
         connection.close()
 
 
+def _service(
+    db_session: Session,
+) -> PortfolioService:
+    """
+    Build PortfolioService with the production-style
+    transaction boundary.
+
+    Integration tests provide the SQLAlchemy Session,
+    wrap it in SqlAlchemyUnitOfWork, and inject the
+    Unit of Work into PortfolioService.
+    """
+
+    unit_of_work = SqlAlchemyUnitOfWork(
+        db_session
+    )
+
+    return PortfolioService(
+        unit_of_work
+    )
+
+
 def test_create_portfolio(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -78,7 +100,7 @@ def test_create_portfolio(
 def test_create_then_get_portfolio(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -103,7 +125,7 @@ def test_create_then_get_portfolio(
 def test_get_missing_portfolio_raises(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -121,7 +143,7 @@ def test_get_missing_portfolio_raises(
 def test_list_portfolios_filters_by_user(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -158,7 +180,7 @@ def test_list_portfolios_filters_by_user(
 def test_add_position(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -192,7 +214,7 @@ def test_add_position(
 def test_add_position_to_missing_portfolio_raises(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -212,7 +234,7 @@ def test_add_position_to_missing_portfolio_raises(
 def test_duplicate_position_is_rejected(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -242,10 +264,80 @@ def test_duplicate_position_is_rejected(
         )
 
 
+def test_database_unique_violation_is_mapped_to_duplicate_position(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Verify that the database unique constraint remains the
+    final protection against concurrent duplicate inserts.
+
+    The application-level duplicate lookup is intentionally
+    bypassed to simulate a race condition where another
+    transaction inserts the same business key between the
+    duplicate check and INSERT.
+
+    The resulting IntegrityError must be translated into the
+    application's PositionAlreadyExistsError, and the failed
+    transaction must be rolled back so the Session remains
+    usable afterwards.
+    """
+
+    service = _service(
+        db_session
+    )
+
+    portfolio = service.create_portfolio(
+        user_id="user-001",
+        name="Growth Portfolio",
+    )
+
+    service.add_position(
+        portfolio_id=portfolio.portfolio_id,
+        symbol="AAPL",
+        market=Market.US,
+        quantity=Decimal("100"),
+        average_cost=Decimal("200"),
+    )
+
+    # Simulate the application-level duplicate check missing
+    # the existing row during a concurrent race.
+    monkeypatch.setattr(
+        service._uow.portfolios,
+        "get_position",
+        lambda **_: None,
+    )
+
+    with pytest.raises(
+        PositionAlreadyExistsError,
+        match="position already exists: US:AAPL",
+    ):
+        service.add_position(
+            portfolio_id=portfolio.portfolio_id,
+            symbol="aapl",
+            market=Market.US,
+            quantity=Decimal("50"),
+            average_cost=Decimal("220"),
+        )
+
+    # The failed INSERT must have been rolled back.
+    # A subsequent transaction should still succeed.
+    position = service.add_position(
+        portfolio_id=portfolio.portfolio_id,
+        symbol="MSFT",
+        market=Market.US,
+        quantity=Decimal("10"),
+        average_cost=Decimal("400"),
+    )
+
+    assert position.symbol == "MSFT"
+    assert position.market is Market.US
+
+
 def test_list_positions(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -288,7 +380,7 @@ def test_list_positions(
 def test_get_portfolio_contains_persisted_positions(
     db_session: Session,
 ) -> None:
-    service = PortfolioService(
+    service = _service(
         db_session
     )
 
@@ -314,5 +406,7 @@ def test_get_portfolio_contains_persisted_positions(
 
     assert (
         loaded.total_cost_basis
-        == Decimal("20000.00000000000000000000")
+        == Decimal(
+            "20000.00000000000000000000"
+        )
     )
