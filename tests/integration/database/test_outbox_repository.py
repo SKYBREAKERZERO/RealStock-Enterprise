@@ -583,3 +583,177 @@ def test_skip_locked_prevents_concurrent_duplicate_claim() -> None:
 
         cleanup_session.commit()
         cleanup_session.close()
+
+
+def test_backlog_snapshot_is_empty_when_no_unpublished_events(
+    db_session: Session,
+) -> None:
+    """
+    An empty outbox must report zero pending events and no oldest
+    pending timestamp.
+    """
+
+    db_session.execute(
+        delete(
+            OutboxEventModel
+        )
+    )
+
+    db_session.flush()
+
+    repository = OutboxRepository(
+        db_session
+    )
+
+    snapshot = (
+        repository.get_backlog_snapshot()
+    )
+
+    assert snapshot.pending_count == 0
+    assert snapshot.oldest_pending_at is None
+
+
+def test_backlog_snapshot_counts_all_unpublished_events(
+    db_session: Session,
+) -> None:
+    """
+    Backlog metrics must include every unpublished event.
+
+    This includes events:
+    - immediately dispatchable;
+    - waiting for a future retry;
+    - protected by an active lease.
+
+    Published events must be excluded even when they are older than
+    every unpublished event.
+    """
+
+    db_session.execute(
+        delete(
+            OutboxEventModel
+        )
+    )
+
+    db_session.flush()
+
+    repository = OutboxRepository(
+        db_session
+    )
+
+    now = datetime.now(
+        UTC
+    )
+
+    oldest_pending_at = (
+        now
+        - timedelta(
+            seconds=60
+        )
+    )
+
+    delayed_pending_at = (
+        now
+        - timedelta(
+            seconds=30
+        )
+    )
+
+    published_created_at = (
+        now
+        - timedelta(
+            seconds=90
+        )
+    )
+
+    oldest_pending = (
+        repository.add_event(
+            aggregate_type="test",
+            aggregate_id="oldest-pending",
+            event=_event(
+                occurred_at=(
+                    oldest_pending_at
+                ),
+            ),
+        )
+    )
+
+    delayed_pending = (
+        repository.add_event(
+            aggregate_type="test",
+            aggregate_id="delayed-pending",
+            event=_event(
+                occurred_at=(
+                    delayed_pending_at
+                ),
+            ),
+        )
+    )
+
+    published = (
+        repository.add_event(
+            aggregate_type="test",
+            aggregate_id="published",
+            event=_event(
+                occurred_at=(
+                    published_created_at
+                ),
+            ),
+        )
+    )
+
+    # Explicit creation timestamps make the backlog-age semantics
+    # deterministic for this integration test.
+    oldest_pending.created_at = (
+        oldest_pending_at
+    )
+
+    delayed_pending.created_at = (
+        delayed_pending_at
+    )
+
+    published.created_at = (
+        published_created_at
+    )
+
+    # This event is not currently dispatchable because it is both
+    # waiting for retry and protected by an active lease.
+    #
+    # It must still count as backlog because published_at is NULL.
+    delayed_pending.next_attempt_at = (
+        now
+        + timedelta(
+            minutes=10
+        )
+    )
+
+    delayed_pending.locked_by = (
+        "active-worker"
+    )
+
+    delayed_pending.locked_until = (
+        now
+        + timedelta(
+            minutes=1
+        )
+    )
+
+    # This is deliberately the oldest row in the table.
+    #
+    # Because it has already been published, it must not influence
+    # either pending_count or oldest_pending_at.
+    published.published_at = (
+        now
+    )
+
+    db_session.flush()
+
+    snapshot = (
+        repository.get_backlog_snapshot()
+    )
+
+    assert snapshot.pending_count == 2
+
+    assert (
+        snapshot.oldest_pending_at
+        == oldest_pending_at
+    )

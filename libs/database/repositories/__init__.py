@@ -1,5 +1,6 @@
 from libs.database.repositories.outbox import (
     ClaimedOutboxEvent,
+    OutboxBacklogSnapshot,
     OutboxRepository,
 )
 from libs.database.repositories.portfolio import (
@@ -8,6 +9,7 @@ from libs.database.repositories.portfolio import (
 
 __all__ = [
     "ClaimedOutboxEvent",
+    "OutboxBacklogSnapshot",
     "OutboxRepository",
     "PortfolioRepository",
 ]

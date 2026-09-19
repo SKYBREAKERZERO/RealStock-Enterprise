@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 import libs.database.models.outbox as outbox_models
@@ -53,6 +53,34 @@ class ClaimedOutboxEvent:
     locked_until: datetime | None = None
 
 
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class OutboxBacklogSnapshot:
+    """
+    Immutable operational snapshot of the transactional outbox backlog.
+
+    pending_count:
+        Number of unpublished outbox events.
+
+    oldest_pending_at:
+        Database creation time of the oldest unpublished event.
+
+        None means there are currently no unpublished events.
+
+    The snapshot intentionally includes:
+    - immediately dispatchable events;
+    - events waiting for retry;
+    - events protected by an active worker lease.
+
+    Any event with published_at set is excluded.
+    """
+
+    pending_count: int
+    oldest_pending_at: datetime | None
+
+
 class OutboxRepository:
     """
     Repository for transactional outbox persistence and dispatch state.
@@ -74,6 +102,9 @@ class OutboxRepository:
 
     claim_pending() returns immutable ClaimedOutboxEvent snapshots
     rather than live ORM entities.
+
+    get_backlog_snapshot() provides a read-only operational view of
+    unpublished events for observability.
 
     Delivery semantics are at-least-once.
     """
@@ -150,6 +181,70 @@ class OutboxRepository:
         self._session.flush()
 
         return model
+
+    # ==========================================================
+    # Operational backlog snapshot
+    # ==========================================================
+
+    def get_backlog_snapshot(
+        self,
+    ) -> OutboxBacklogSnapshot:
+        """
+        Return the current unpublished outbox backlog.
+
+        All unpublished events are considered pending, including:
+        - events currently eligible for dispatch;
+        - events waiting for retry;
+        - events currently protected by an active worker lease.
+
+        Published events are excluded.
+
+        created_at is used for oldest_pending_at because this metric
+        describes how long an event has remained in the outbox table,
+        rather than when the underlying business event occurred.
+
+        This query is read-only and does not:
+        - flush;
+        - commit;
+        - rollback;
+        - acquire row locks.
+        """
+
+        statement = (
+            select(
+                func.count(
+                    outbox_models
+                    .OutboxEventModel
+                    .id
+                ),
+                func.min(
+                    outbox_models
+                    .OutboxEventModel
+                    .created_at
+                ),
+            )
+            .where(
+                outbox_models
+                .OutboxEventModel
+                .published_at
+                .is_(None)
+            )
+        )
+
+        pending_count, oldest_pending_at = (
+            self._session
+            .execute(statement)
+            .one()
+        )
+
+        return OutboxBacklogSnapshot(
+            pending_count=int(
+                pending_count
+            ),
+            oldest_pending_at=(
+                oldest_pending_at
+            ),
+        )
 
     # ==========================================================
     # Dispatcher claim

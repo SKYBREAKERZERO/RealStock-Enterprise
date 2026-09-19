@@ -76,6 +76,57 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------
+    # Transactional Outbox Dispatcher
+    # ---------------------------------------------------------
+
+    outbox_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        validation_alias="OUTBOX_BATCH_SIZE",
+    )
+
+    outbox_lease_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=3600,
+        validation_alias="OUTBOX_LEASE_SECONDS",
+    )
+
+    outbox_poll_interval_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=60,
+        validation_alias="OUTBOX_POLL_INTERVAL_SECONDS",
+    )
+
+    outbox_error_backoff_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        le=300,
+        validation_alias="OUTBOX_ERROR_BACKOFF_SECONDS",
+    )
+
+    outbox_event_bus_name: str = Field(
+        default="default",
+        min_length=1,
+        validation_alias="OUTBOX_EVENT_BUS_NAME",
+    )
+
+    outbox_metrics_namespace: str = Field(
+        default="RealStock/Outbox",
+        min_length=1,
+        validation_alias="OUTBOX_METRICS_NAMESPACE",
+    )
+
+    outbox_metrics_interval_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        validation_alias="OUTBOX_METRICS_INTERVAL_SECONDS",
+    )
+
+    # ---------------------------------------------------------
     # PostgreSQL
     # ---------------------------------------------------------
 

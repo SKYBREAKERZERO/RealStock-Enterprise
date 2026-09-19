@@ -11,7 +11,7 @@ services:
   # ============================================================
   # Local AWS development environment.
   #
-  # Planned services:
+  # Planned / used services:
   # - S3
   # - DynamoDB
   # - Kinesis
@@ -20,6 +20,7 @@ services:
   # - SNS
   # - Secrets Manager
   # - KMS
+  # - CloudWatch
   #
   # Windows host:
   #   http://127.0.0.1:4566
@@ -264,23 +265,20 @@ services:
       # AWS / LocalStack
       # --------------------------------------------------------
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
-      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ENDPOINT_URL: "http://localstack:4566"
 
       # --------------------------------------------------------
       # PostgreSQL
       #
-      # IMPORTANT:
       # Docker containers must use Docker DNS service name
-      # "postgres", not 127.0.0.1 / localhost.
+      # "postgres", not localhost.
       # --------------------------------------------------------
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}"
 
       # --------------------------------------------------------
       # Redis
-      #
-      # Docker internal endpoint.
       # --------------------------------------------------------
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: "redis://redis:6379/0"
 
     ports:
       - "127.0.0.1:18000:8000"
@@ -295,6 +293,111 @@ services:
       localstack:
         condition: service_healthy
 
+    stop_grace_period: 30s
+
+    networks:
+      - realstock-local
+
+
+  # ============================================================
+  # Transactional Outbox Dispatcher
+  # ============================================================
+  # Dedicated long-running background worker responsible for
+  # reliable transactional outbox delivery.
+  #
+  # Runtime flow:
+  #
+  #   PostgreSQL transactional outbox
+  #       |
+  #       v
+  #   claim + lease
+  #       |
+  #       v
+  #   EventBridge
+  #       |
+  #       v
+  #   publish acknowledgement / retry
+  #
+  # Operational characteristics:
+  # - no HTTP endpoint;
+  # - no exposed host port;
+  # - independent from the API process;
+  # - PostgreSQL-backed durable delivery state;
+  # - EventBridge publication through LocalStack locally;
+  # - CloudWatch operational metrics through LocalStack locally;
+  # - SIGTERM / SIGINT graceful shutdown.
+  #
+  # Redis is not an operational dependency of this worker.
+  # REDIS_URL is provided only because it is currently part of
+  # the shared application Settings contract.
+  # ============================================================
+  outbox-dispatcher:
+    build:
+      context: .
+      dockerfile: services/outbox_dispatcher/Dockerfile
+
+    image: realstock-outbox-dispatcher:day30
+    container_name: realstock-outbox-dispatcher
+    restart: unless-stopped
+
+    # Run a minimal init process as PID 1.
+    # This improves signal forwarding and child-process reaping.
+    init: true
+
+    environment:
+      # --------------------------------------------------------
+      # Application
+      # --------------------------------------------------------
+      APP_ENV: local
+      APP_NAME: realstock-outbox-dispatcher
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # --------------------------------------------------------
+      # AWS / LocalStack
+      #
+      # Containers must use Docker DNS service name "localstack".
+      # --------------------------------------------------------
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ENDPOINT_URL: "http://localstack:4566"
+
+      # --------------------------------------------------------
+      # PostgreSQL
+      #
+      # Containers must use Docker DNS service name "postgres".
+      # --------------------------------------------------------
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}"
+
+      # --------------------------------------------------------
+      # Shared Settings compatibility
+      #
+      # The outbox worker currently does not access Redis.
+      # --------------------------------------------------------
+      REDIS_URL: "redis://redis:6379/0"
+
+      # --------------------------------------------------------
+      # Transactional Outbox Dispatcher
+      # --------------------------------------------------------
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-60}
+      OUTBOX_POLL_INTERVAL_SECONDS: ${OUTBOX_POLL_INTERVAL_SECONDS:-1}
+      OUTBOX_ERROR_BACKOFF_SECONDS: ${OUTBOX_ERROR_BACKOFF_SECONDS:-5}
+      OUTBOX_EVENT_BUS_NAME: ${OUTBOX_EVENT_BUS_NAME:-default}
+
+      # --------------------------------------------------------
+      # Outbox Observability
+      # --------------------------------------------------------
+      OUTBOX_METRICS_NAMESPACE: ${OUTBOX_METRICS_NAMESPACE:-RealStock/Outbox}
+      OUTBOX_METRICS_INTERVAL_SECONDS: ${OUTBOX_METRICS_INTERVAL_SECONDS:-30}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      localstack:
+        condition: service_healthy
+
+    # Docker sends SIGTERM first. The worker finishes the current
+    # dispatch operation and exits before Docker resorts to SIGKILL.
     stop_grace_period: 30s
 
     networks:
