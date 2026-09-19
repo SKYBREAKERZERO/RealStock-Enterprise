@@ -12,7 +12,10 @@ from libs.domain.portfolio import (
     Portfolio,
     Position,
 )
-
+from libs.events.portfolio import (
+    create_portfolio_created_event,
+    create_position_added_event,
+)
 
 _POSITION_UNIQUE_CONSTRAINT = (
     "uq_positions_portfolio_market_symbol"
@@ -69,11 +72,15 @@ class PortfolioService:
     - Apply application/business rules.
     - Coordinate repository operations through Unit of Work.
     - Define explicit transaction success boundaries.
+    - Persist integration events through the transactional outbox.
     - Translate known persistence conflicts into application
       errors without leaking database implementation details.
 
     SQL and persistence details belong in Repository.
     Transaction mechanics belong in Unit of Work.
+
+    Business writes and their corresponding outbox events are
+    committed atomically through the same Unit of Work.
     """
 
     def __init__(
@@ -106,6 +113,20 @@ class PortfolioService:
                 .create_portfolio(
                     portfolio
                 )
+            )
+
+            event = (
+                create_portfolio_created_event(
+                    result
+                )
+            )
+
+            self._uow.outbox.add_event(
+                aggregate_type="portfolio",
+                aggregate_id=str(
+                    result.portfolio_id
+                ),
+                event=event,
             )
 
             self._uow.commit()
@@ -212,6 +233,21 @@ class PortfolioService:
                         portfolio_id=portfolio_id,
                         position=position,
                     )
+                )
+
+                event = (
+                    create_position_added_event(
+                        portfolio_id=portfolio_id,
+                        position=result,
+                    )
+                )
+
+                self._uow.outbox.add_event(
+                    aggregate_type="portfolio",
+                    aggregate_id=str(
+                        portfolio_id
+                    ),
+                    event=event,
                 )
 
                 self._uow.commit()

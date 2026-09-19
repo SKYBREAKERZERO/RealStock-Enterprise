@@ -19,7 +19,7 @@ def _session() -> Mock:
     """
 
     return Mock(
-        spec=Session
+        spec=Session,
     )
 
 
@@ -44,13 +44,21 @@ def test_sqlalchemy_unit_of_work_satisfies_protocol() -> None:
     )
 
     result = _accept_unit_of_work(
-        uow
+        uow,
     )
 
     assert result is uow
 
 
-def test_unit_of_work_repository_uses_shared_session() -> None:
+def test_unit_of_work_repositories_use_shared_session() -> None:
+    """
+    All repositories participating in the Unit of Work must use
+    the same SQLAlchemy Session.
+
+    This ensures portfolio writes and transactional outbox writes
+    participate in the same database transaction.
+    """
+
     session = _session()
 
     uow = SqlAlchemyUnitOfWork(
@@ -58,6 +66,7 @@ def test_unit_of_work_repository_uses_shared_session() -> None:
     )
 
     assert uow.portfolios._session is session
+    assert uow.outbox._session is session
 
 
 def test_explicit_commit_commits_once() -> None:
@@ -101,7 +110,7 @@ def test_exception_rolls_back_and_propagates() -> None:
     ):
         with uow:
             raise RuntimeError(
-                "boom"
+                "boom",
             )
 
     session.commit.assert_not_called()
@@ -112,7 +121,7 @@ def test_commit_failure_rolls_back() -> None:
     session = _session()
 
     session.commit.side_effect = RuntimeError(
-        "commit failed"
+        "commit failed",
     )
 
     uow = SqlAlchemyUnitOfWork(
@@ -145,6 +154,11 @@ def test_explicit_rollback_is_not_repeated_on_exit() -> None:
 
 
 def test_unit_of_work_does_not_close_session() -> None:
+    """
+    Session lifecycle belongs to the external dependency/session
+    provider rather than the Unit of Work.
+    """
+
     session = _session()
 
     uow = SqlAlchemyUnitOfWork(
