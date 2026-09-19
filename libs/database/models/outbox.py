@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,17 +19,22 @@ from libs.database.models.base import Base
 
 
 def utc_now() -> datetime:
+    """Return the current timezone-aware UTC timestamp."""
     return datetime.now(UTC)
 
 
 class OutboxEventModel(Base):
     """
-    Transactional outbox record.
+    Persistent transactional outbox event.
 
     Business state and its corresponding integration event are
     persisted in the same PostgreSQL transaction.
 
-    Publishing is performed asynchronously by a separate dispatcher.
+    Delivery semantics are at-least-once. event_id remains stable
+    across retries so consumers can implement idempotency.
+
+    Dispatcher workers coordinate using PostgreSQL row locking and
+    a time-bounded lease.
     """
 
     __tablename__ = "outbox_events"
@@ -37,6 +43,12 @@ class OutboxEventModel(Base):
         Index(
             "ix_outbox_events_pending",
             "published_at",
+            "occurred_at",
+        ),
+        Index(
+            "ix_outbox_events_dispatchable",
+            "published_at",
+            "next_attempt_at",
             "occurred_at",
         ),
         Index(
@@ -131,7 +143,30 @@ class OutboxEventModel(Base):
         default=0,
     )
 
-    last_error: Mapped[str | None] = mapped_column(
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+    last_error: Mapped[
+        str | None
+    ] = mapped_column(
         Text,
+        nullable=True,
+    )
+
+    locked_until: Mapped[
+        datetime | None
+    ] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    locked_by: Mapped[
+        str | None
+    ] = mapped_column(
+        String(128),
         nullable=True,
     )
