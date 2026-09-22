@@ -2,6 +2,7 @@ from services.api.portfolio.service import (
     PortfolioNotFoundError,
     PortfolioService,
     PositionAlreadyExistsError,
+    PositionNotFoundError,
 )
 from services.api.portfolio.valuation import (
     PortfolioValuationService,
@@ -12,4 +13,5 @@ __all__ = [
     "PortfolioService",
     "PortfolioValuationService",
     "PositionAlreadyExistsError",
+    "PositionNotFoundError",
 ]

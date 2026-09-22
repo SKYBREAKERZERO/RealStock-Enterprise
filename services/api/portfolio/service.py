@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from libs.domain.portfolio import (
 from libs.events.portfolio import (
     create_portfolio_created_event,
     create_position_added_event,
+    create_position_removed_event,
+    create_position_updated_event,
 )
 
 _POSITION_UNIQUE_CONSTRAINT = (
@@ -28,6 +31,12 @@ class PortfolioNotFoundError(Exception):
     """
 
 
+class PositionNotFoundError(Exception):
+    """
+    Raised when a requested position does not exist.
+    """
+
+
 class PositionAlreadyExistsError(Exception):
     """
     Raised when a portfolio already contains the instrument.
@@ -37,17 +46,6 @@ class PositionAlreadyExistsError(Exception):
 def _get_constraint_name(
     error: IntegrityError,
 ) -> str | None:
-    """
-    Return the database constraint name carried by the
-    underlying PostgreSQL driver exception.
-
-    PostgreSQL / psycopg exposes constraint metadata through
-    the driver's diagnostic object.
-
-    If the constraint name cannot be determined, return None
-    so the original database error can propagate unchanged.
-    """
-
     diag = getattr(
         error.orig,
         "diag",
@@ -68,17 +66,6 @@ class PortfolioService:
     """
     Application service for portfolio operations.
 
-    Responsibilities:
-    - Apply application/business rules.
-    - Coordinate repository operations through Unit of Work.
-    - Define explicit transaction success boundaries.
-    - Persist integration events through the transactional outbox.
-    - Translate known persistence conflicts into application
-      errors without leaking database implementation details.
-
-    SQL and persistence details belong in Repository.
-    Transaction mechanics belong in Unit of Work.
-
     Business writes and their corresponding outbox events are
     committed atomically through the same Unit of Work.
     """
@@ -88,10 +75,6 @@ class PortfolioService:
         unit_of_work: UnitOfWork,
     ) -> None:
         self._uow = unit_of_work
-
-    # ==========================================================
-    # Portfolio
-    # ==========================================================
 
     def create_portfolio(
         self,
@@ -168,10 +151,6 @@ class PortfolioService:
                     user_id=user_id
                 )
             )
-
-    # ==========================================================
-    # Position
-    # ==========================================================
 
     def add_position(
         self,
@@ -272,6 +251,181 @@ class PortfolioService:
                 ) from exc
 
             raise
+
+    def update_position(
+        self,
+        *,
+        portfolio_id: UUID,
+        position_id: UUID,
+        quantity: Decimal | None = None,
+        average_cost: Decimal | None = None,
+    ) -> Position:
+        if (
+            quantity is None
+            and average_cost is None
+        ):
+            raise ValueError(
+                "at least one position field must be provided"
+            )
+
+        with self._uow:
+            portfolio = (
+                self._uow
+                .portfolios
+                .get_portfolio(
+                    portfolio_id
+                )
+            )
+
+            if portfolio is None:
+                raise PortfolioNotFoundError(
+                    f"portfolio not found: "
+                    f"{portfolio_id}"
+                )
+
+            existing = (
+                self._uow
+                .portfolios
+                .get_position_by_id(
+                    portfolio_id=portfolio_id,
+                    position_id=position_id,
+                    for_update=True,
+                )
+            )
+
+            if existing is None:
+                raise PositionNotFoundError(
+                    f"position not found: "
+                    f"{position_id}"
+                )
+
+            updated = Position(
+                position_id=existing.position_id,
+                symbol=existing.symbol,
+                market=existing.market,
+                quantity=(
+                    quantity
+                    if quantity is not None
+                    else existing.quantity
+                ),
+                average_cost=(
+                    average_cost
+                    if average_cost is not None
+                    else existing.average_cost
+                ),
+                created_at=existing.created_at,
+                updated_at=datetime.now(UTC),
+            )
+
+            result = (
+                self._uow
+                .portfolios
+                .update_position(
+                    portfolio_id=portfolio_id,
+                    position=updated,
+                )
+            )
+
+            if result is None:
+                raise PositionNotFoundError(
+                    f"position not found: "
+                    f"{position_id}"
+                )
+
+            event = (
+                create_position_updated_event(
+                    portfolio_id=portfolio_id,
+                    previous_position=existing,
+                    position=result,
+                )
+            )
+
+            self._uow.outbox.add_event(
+                aggregate_type="portfolio",
+                aggregate_id=str(
+                    portfolio_id
+                ),
+                event=event,
+            )
+
+            self._uow.commit()
+
+            return result
+
+    def delete_position(
+        self,
+        *,
+        portfolio_id: UUID,
+        position_id: UUID,
+    ) -> None:
+        with self._uow:
+            portfolio = (
+                self._uow
+                .portfolios
+                .get_portfolio(
+                    portfolio_id
+                )
+            )
+
+            if portfolio is None:
+                raise PortfolioNotFoundError(
+                    f"portfolio not found: "
+                    f"{portfolio_id}"
+                )
+
+            existing = (
+                self._uow
+                .portfolios
+                .get_position_by_id(
+                    portfolio_id=portfolio_id,
+                    position_id=position_id,
+                    for_update=True,
+                )
+            )
+
+            if existing is None:
+                raise PositionNotFoundError(
+                    f"position not found: "
+                    f"{position_id}"
+                )
+
+            removed_at = datetime.now(
+                UTC
+            )
+
+            deleted = (
+                self._uow
+                .portfolios
+                .delete_position(
+                    portfolio_id=portfolio_id,
+                    position_id=position_id,
+                    removed_at=removed_at,
+                )
+            )
+
+            if deleted is None:
+                raise PositionNotFoundError(
+                    f"position not found: "
+                    f"{position_id}"
+                )
+
+            event = (
+                create_position_removed_event(
+                    portfolio_id=portfolio_id,
+                    position=deleted,
+                    removed_at=removed_at,
+                )
+            )
+
+            self._uow.outbox.add_event(
+                aggregate_type="portfolio",
+                aggregate_id=str(
+                    portfolio_id
+                ),
+                event=event,
+            )
+
+            self._uow.commit()
 
     def list_positions(
         self,

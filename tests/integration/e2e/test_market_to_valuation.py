@@ -18,15 +18,18 @@ from libs.cache import (
     get_redis_client,
 )
 from libs.database import get_session_factory
-from libs.database.models import (
-    PortfolioModel,
-    PositionModel,
-)
+from libs.database.models import PortfolioModel
 from libs.domain.market import (
     Market,
     MarketQuote,
 )
+from services.api.dependencies import (
+    get_portfolio_valuation_service,
+)
 from services.api.main import app
+from services.api.portfolio import (
+    PortfolioValuationService,
+)
 from services.market_ingestor.producer import (
     KinesisMarketEventProducer,
 )
@@ -42,8 +45,10 @@ STREAM_NAME = "realstock-market-events-local"
 STREAM_WAIT_RETRY_COUNT = 40
 STREAM_WAIT_INTERVAL_SECONDS = 0.25
 
+E2E_USER_ID = "e2e-user-001"
+
 USER_HEADERS = {
-    "X-User-Id": "e2e-user-001",
+    "X-User-Id": E2E_USER_ID,
 }
 
 
@@ -58,25 +63,37 @@ def ensure_stream_exists() -> None:
     kinesis = get_kinesis_client()
 
     try:
-        response = kinesis.describe_stream_summary(
-            StreamName=STREAM_NAME,
+        response = (
+            kinesis.describe_stream_summary(
+                StreamName=STREAM_NAME,
+            )
         )
 
-        status = response[
+        stream_status = response[
             "StreamDescriptionSummary"
-        ]["StreamStatus"]
+        ][
+            "StreamStatus"
+        ]
 
-        if status == "ACTIVE":
+        if stream_status == "ACTIVE":
             return
 
     except ClientError as exc:
         error_code = (
             exc.response
-            .get("Error", {})
-            .get("Code")
+            .get(
+                "Error",
+                {},
+            )
+            .get(
+                "Code",
+            )
         )
 
-        if error_code != "ResourceNotFoundException":
+        if (
+            error_code
+            != "ResourceNotFoundException"
+        ):
             raise
 
         kinesis.create_stream(
@@ -89,16 +106,22 @@ def ensure_stream_exists() -> None:
     ):
         try:
             response = (
-                kinesis.describe_stream_summary(
+                kinesis
+                .describe_stream_summary(
                     StreamName=STREAM_NAME,
                 )
             )
 
-            status = response[
+            stream_status = response[
                 "StreamDescriptionSummary"
-            ]["StreamStatus"]
+            ][
+                "StreamStatus"
+            ]
 
-            if status == "ACTIVE":
+            if (
+                stream_status
+                == "ACTIVE"
+            ):
                 return
 
         except ClientError:
@@ -114,53 +137,102 @@ def ensure_stream_exists() -> None:
     )
 
 
+def _delete_e2e_database_data() -> None:
+    """
+    Delete only database records owned by this E2E test.
+
+    Do not delete all portfolios or positions because the
+    development database can contain manually created demo data.
+
+    Position rows are deleted through the portfolio FK cascade.
+    """
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    with session_factory() as session:
+        session.execute(
+            delete(
+                PortfolioModel
+            )
+            .where(
+                PortfolioModel.user_id
+                == E2E_USER_ID
+            )
+        )
+
+        session.commit()
+
+
+def _delete_e2e_quote_cache() -> None:
+    """
+    Delete only the legacy Redis quote written by this E2E test.
+    """
+
+    redis_client = (
+        get_redis_client()
+    )
+
+    redis_client.delete(
+        "realstock:quote:US:AAPL"
+    )
+
+
 @pytest.fixture(autouse=True)
 def cleanup_environment():
     """
-    Keep PostgreSQL and Redis deterministic for the E2E test.
+    Keep PostgreSQL and Redis deterministic for this E2E test.
+
+    This E2E intentionally validates the legacy ingestion read
+    model:
+
+        MarketIngestorService
+            -> Kinesis
+            -> MarketQuoteCache
+            -> PortfolioValuationService
+
+    Production portfolio valuation can use the newer batch market
+    snapshot/provider path. The dependency override here makes
+    this test deterministic and keeps its responsibility explicit.
     """
 
-    session_factory = get_session_factory()
+    _delete_e2e_database_data()
+    _delete_e2e_quote_cache()
 
-    with session_factory() as session:
-        session.execute(
-            delete(PositionModel)
+    quote_cache = MarketQuoteCache(
+        ttl_seconds=30,
+    )
+
+    app.dependency_overrides[
+        get_portfolio_valuation_service
+    ] = lambda: PortfolioValuationService(
+        quote_cache=quote_cache,
+    )
+
+    try:
+        yield
+
+    finally:
+        app.dependency_overrides.pop(
+            get_portfolio_valuation_service,
+            None,
         )
-        session.execute(
-            delete(PortfolioModel)
-        )
-        session.commit()
 
-    redis_client = get_redis_client()
-
-    for key in redis_client.scan_iter(
-        match="realstock:quote:*"
-    ):
-        redis_client.delete(key)
-
-    yield
-
-    with session_factory() as session:
-        session.execute(
-            delete(PositionModel)
-        )
-        session.execute(
-            delete(PortfolioModel)
-        )
-        session.commit()
-
-    for key in redis_client.scan_iter(
-        match="realstock:quote:*"
-    ):
-        redis_client.delete(key)
+        _delete_e2e_database_data()
+        _delete_e2e_quote_cache()
 
 
 def build_quote() -> MarketQuote:
     return MarketQuote(
         symbol="AAPL",
         market=Market.US,
-        bid_price=Decimal("210.00"),
-        ask_price=Decimal("212.00"),
+        bid_price=Decimal(
+            "210.00"
+        ),
+        ask_price=Decimal(
+            "212.00"
+        ),
         bid_size=100,
         ask_size=120,
         timestamp=datetime(
@@ -206,13 +278,17 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     # 1. Create portfolio
     # --------------------------------------------------------
 
-    portfolio_response = client.post(
-        "/api/v1/portfolios",
-        headers=USER_HEADERS,
-        json={
-            "name": "E2E Growth Portfolio",
-            "currency": "USD",
-        },
+    portfolio_response = (
+        client.post(
+            "/api/v1/portfolios",
+            headers=USER_HEADERS,
+            json={
+                "name":
+                    "E2E Growth Portfolio",
+                "currency":
+                    "USD",
+            },
+        )
     )
 
     assert (
@@ -236,19 +312,25 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     # cost basis   = 20,050
     # --------------------------------------------------------
 
-    position_response = client.post(
-        (
-            "/api/v1/portfolios/"
-            f"{portfolio_id}"
-            "/positions"
-        ),
-        headers=USER_HEADERS,
-        json={
-            "symbol": "AAPL",
-            "market": "US",
-            "quantity": "100",
-            "average_cost": "200.50",
-        },
+    position_response = (
+        client.post(
+            (
+                "/api/v1/portfolios/"
+                f"{portfolio_id}"
+                "/positions"
+            ),
+            headers=USER_HEADERS,
+            json={
+                "symbol":
+                    "AAPL",
+                "market":
+                    "US",
+                "quantity":
+                    "100",
+                "average_cost":
+                    "200.50",
+            },
+        )
     )
 
     assert (
@@ -261,13 +343,15 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     #    valuation must be incomplete
     # --------------------------------------------------------
 
-    before_response = client.get(
-        (
-            "/api/v1/portfolios/"
-            f"{portfolio_id}"
-            "/valuation"
-        ),
-        headers=USER_HEADERS,
+    before_response = (
+        client.get(
+            (
+                "/api/v1/portfolios/"
+                f"{portfolio_id}"
+                "/valuation"
+            ),
+            headers=USER_HEADERS,
+        )
     )
 
     assert (
@@ -275,46 +359,66 @@ def test_market_quote_updates_portfolio_valuation() -> None:
         == 200
     )
 
-    before = before_response.json()
-
-    assert (
-        Decimal(
-            before["total_cost_basis"]
-        )
-        == Decimal("20050.00")
+    before = (
+        before_response.json()
     )
 
     assert (
-        before["priced_positions"]
+        Decimal(
+            before[
+                "total_cost_basis"
+            ]
+        )
+        == Decimal(
+            "20050.00"
+        )
+    )
+
+    assert (
+        before[
+            "priced_positions"
+        ]
         == 0
     )
 
     assert (
-        before["missing_quotes"]
+        before[
+            "missing_quotes"
+        ]
         == 1
     )
 
     assert (
-        before["valuation_complete"]
+        before[
+            "valuation_complete"
+        ]
         is False
     )
 
-    before_position = (
-        before["positions"][0]
-    )
+    before_position = before[
+        "positions"
+    ][
+        0
+    ]
 
     assert (
-        before_position["quote_available"]
+        before_position[
+            "quote_available"
+        ]
         is False
     )
 
     assert (
-        before_position["market_price"]
+        before_position[
+            "market_price"
+        ]
         is None
     )
 
     assert (
-        before_position["market_value"]
+        before_position[
+            "market_value"
+        ]
         is None
     )
 
@@ -326,12 +430,16 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     # mid = 211
     # --------------------------------------------------------
 
-    producer = KinesisMarketEventProducer(
-        stream_name=STREAM_NAME,
+    producer = (
+        KinesisMarketEventProducer(
+            stream_name=STREAM_NAME,
+        )
     )
 
-    quote_cache = MarketQuoteCache(
-        ttl_seconds=30,
+    quote_cache = (
+        MarketQuoteCache(
+            ttl_seconds=30,
+        )
     )
 
     market_ingestor = (
@@ -342,7 +450,8 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     )
 
     publish_result = (
-        market_ingestor.ingest_quote(
+        market_ingestor
+        .ingest_quote(
             build_quote()
         )
     )
@@ -351,10 +460,13 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     # 5. Verify Kinesis publication succeeded
     # --------------------------------------------------------
 
-    assert publish_result.shard_id
+    assert (
+        publish_result.shard_id
+    )
 
     assert (
-        publish_result.sequence_number
+        publish_result
+        .sequence_number
     )
 
     # --------------------------------------------------------
@@ -362,13 +474,17 @@ def test_market_quote_updates_portfolio_valuation() -> None:
     # --------------------------------------------------------
 
     cached_quote = (
-        quote_cache.get_quote(
+        quote_cache
+        .get_quote(
             market=Market.US,
             symbol="AAPL",
         )
     )
 
-    assert cached_quote is not None
+    assert (
+        cached_quote
+        is not None
+    )
 
     assert (
         cached_quote.symbol
@@ -382,20 +498,24 @@ def test_market_quote_updates_portfolio_valuation() -> None:
 
     assert (
         cached_quote.mid_price
-        == Decimal("211.00")
+        == Decimal(
+            "211.00"
+        )
     )
 
     # --------------------------------------------------------
     # 7. Query valuation again
     # --------------------------------------------------------
 
-    after_response = client.get(
-        (
-            "/api/v1/portfolios/"
-            f"{portfolio_id}"
-            "/valuation"
-        ),
-        headers=USER_HEADERS,
+    after_response = (
+        client.get(
+            (
+                "/api/v1/portfolios/"
+                f"{portfolio_id}"
+                "/valuation"
+            ),
+            headers=USER_HEADERS,
+        )
     )
 
     assert (
@@ -403,7 +523,9 @@ def test_market_quote_updates_portfolio_valuation() -> None:
         == 200
     )
 
-    after = after_response.json()
+    after = (
+        after_response.json()
+    )
 
     # --------------------------------------------------------
     # Portfolio calculation
@@ -420,23 +542,35 @@ def test_market_quote_updates_portfolio_valuation() -> None:
 
     assert (
         Decimal(
-            after["total_cost_basis"]
+            after[
+                "total_cost_basis"
+            ]
         )
-        == Decimal("20050.00")
+        == Decimal(
+            "20050.00"
+        )
     )
 
     assert (
         Decimal(
-            after["priced_cost_basis"]
+            after[
+                "priced_cost_basis"
+            ]
         )
-        == Decimal("20050.00")
+        == Decimal(
+            "20050.00"
+        )
     )
 
     assert (
         Decimal(
-            after["total_market_value"]
+            after[
+                "total_market_value"
+            ]
         )
-        == Decimal("21100.00")
+        == Decimal(
+            "21100.00"
+        )
     )
 
     assert (
@@ -445,21 +579,29 @@ def test_market_quote_updates_portfolio_valuation() -> None:
                 "total_unrealized_pnl"
             ]
         )
-        == Decimal("1050.00")
+        == Decimal(
+            "1050.00"
+        )
     )
 
     assert (
-        after["priced_positions"]
+        after[
+            "priced_positions"
+        ]
         == 1
     )
 
     assert (
-        after["missing_quotes"]
+        after[
+            "missing_quotes"
+        ]
         == 0
     )
 
     assert (
-        after["valuation_complete"]
+        after[
+            "valuation_complete"
+        ]
         is True
     )
 
@@ -469,37 +611,55 @@ def test_market_quote_updates_portfolio_valuation() -> None:
 
     position = after[
         "positions"
-    ][0]
+    ][
+        0
+    ]
 
     assert (
-        position["symbol"]
+        position[
+            "symbol"
+        ]
         == "AAPL"
     )
 
     assert (
-        position["market"]
+        position[
+            "market"
+        ]
         == "US"
     )
 
     assert (
         Decimal(
-            position["cost_basis"]
+            position[
+                "cost_basis"
+            ]
         )
-        == Decimal("20050.00")
+        == Decimal(
+            "20050.00"
+        )
     )
 
     assert (
         Decimal(
-            position["market_price"]
+            position[
+                "market_price"
+            ]
         )
-        == Decimal("211.00")
+        == Decimal(
+            "211.00"
+        )
     )
 
     assert (
         Decimal(
-            position["market_value"]
+            position[
+                "market_value"
+            ]
         )
-        == Decimal("21100.00")
+        == Decimal(
+            "21100.00"
+        )
     )
 
     assert (
@@ -508,15 +668,21 @@ def test_market_quote_updates_portfolio_valuation() -> None:
                 "unrealized_pnl"
             ]
         )
-        == Decimal("1050.00")
+        == Decimal(
+            "1050.00"
+        )
     )
 
     assert (
-        position["quote_available"]
+        position[
+            "quote_available"
+        ]
         is True
     )
 
     assert (
-        position["quote_timestamp"]
+        position[
+            "quote_timestamp"
+        ]
         is not None
     )

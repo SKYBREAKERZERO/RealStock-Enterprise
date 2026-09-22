@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Self
 from uuid import UUID
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_validator,
 )
 
 from libs.domain.market import Market
@@ -52,6 +54,36 @@ class CreatePositionRequest(BaseModel):
     average_cost: Decimal = Field(
         gt=Decimal("0"),
     )
+
+
+class UpdatePositionRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    quantity: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+    )
+
+    average_cost: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_field(
+        self,
+    ) -> Self:
+        if (
+            self.quantity is None
+            and self.average_cost is None
+        ):
+            raise ValueError(
+                "at least one position field must be provided"
+            )
+
+        return self
 
 
 class PositionResponse(BaseModel):

@@ -7,6 +7,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Response,
     status,
 )
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,7 @@ from services.api.portfolio.service import (
     PortfolioNotFoundError,
     PortfolioService,
     PositionAlreadyExistsError,
+    PositionNotFoundError,
 )
 from services.api.portfolio.valuation import (
     PortfolioValuationService,
@@ -30,6 +32,7 @@ from services.api.schemas.portfolio import (
     CreatePositionRequest,
     PortfolioResponse,
     PositionResponse,
+    UpdatePositionRequest,
 )
 from services.api.schemas.valuation import (
     PortfolioValuationResponse,
@@ -39,11 +42,6 @@ router = APIRouter(
     prefix="/api/v1/portfolios",
     tags=["portfolios"],
 )
-
-
-# ============================================================
-# Dependencies
-# ============================================================
 
 CurrentUserId = Annotated[
     str,
@@ -61,26 +59,12 @@ PortfolioValuationServiceDependency = Annotated[
 ]
 
 
-# ============================================================
-# Ownership
-# ============================================================
-
 def get_owned_portfolio(
     *,
     service: PortfolioService,
     portfolio_id: UUID,
     user_id: str,
 ) -> Portfolio:
-    """
-    Load a portfolio and enforce ownership.
-
-    404 is deliberately returned for both:
-    - resource does not exist
-    - resource belongs to another user
-
-    This avoids leaking resource existence.
-    """
-
     try:
         portfolio = service.get_portfolio(
             portfolio_id=portfolio_id,
@@ -100,10 +84,6 @@ def get_owned_portfolio(
 
     return portfolio
 
-
-# ============================================================
-# Portfolio
-# ============================================================
 
 @router.post(
     "",
@@ -166,10 +146,6 @@ def get_portfolio(
     )
 
 
-# ============================================================
-# Portfolio Valuation
-# ============================================================
-
 @router.get(
     "/{portfolio_id}/valuation",
     response_model=PortfolioValuationResponse,
@@ -180,16 +156,6 @@ def get_portfolio_valuation(
     portfolio_service: PortfolioServiceDependency,
     valuation_service: PortfolioValuationServiceDependency,
 ) -> PortfolioValuationResponse:
-    """
-    Calculate the current portfolio valuation.
-
-    Portfolio state comes from PostgreSQL.
-    Latest market quotes come from Redis.
-
-    Missing quotes are represented explicitly rather than being
-    interpreted as a zero market price.
-    """
-
     portfolio = get_owned_portfolio(
         service=portfolio_service,
         portfolio_id=portfolio_id,
@@ -204,10 +170,6 @@ def get_portfolio_valuation(
         valuation
     )
 
-
-# ============================================================
-# Positions
-# ============================================================
 
 @router.post(
     "/{portfolio_id}/positions",
@@ -248,7 +210,6 @@ def add_position(
         ) from exc
 
     except IntegrityError as exc:
-        # Protect against concurrent duplicate inserts.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="position already exists",
@@ -291,3 +252,84 @@ def list_positions(
         )
         for position in positions
     ]
+
+
+@router.patch(
+    "/{portfolio_id}/positions/{position_id}",
+    response_model=PositionResponse,
+)
+def update_position(
+    portfolio_id: UUID,
+    position_id: UUID,
+    request: UpdatePositionRequest,
+    user_id: CurrentUserId,
+    service: PortfolioServiceDependency,
+) -> PositionResponse:
+    get_owned_portfolio(
+        service=service,
+        portfolio_id=portfolio_id,
+        user_id=user_id,
+    )
+
+    try:
+        position = service.update_position(
+            portfolio_id=portfolio_id,
+            position_id=position_id,
+            quantity=request.quantity,
+            average_cost=request.average_cost,
+        )
+
+    except PortfolioNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="portfolio not found",
+        ) from exc
+
+    except PositionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="position not found",
+        ) from exc
+
+    return PositionResponse.from_domain(
+        position
+    )
+
+
+@router.delete(
+    "/{portfolio_id}/positions/{position_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_position(
+    portfolio_id: UUID,
+    position_id: UUID,
+    user_id: CurrentUserId,
+    service: PortfolioServiceDependency,
+) -> Response:
+    get_owned_portfolio(
+        service=service,
+        portfolio_id=portfolio_id,
+        user_id=user_id,
+    )
+
+    try:
+        service.delete_position(
+            portfolio_id=portfolio_id,
+            position_id=position_id,
+        )
+
+    except PortfolioNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="portfolio not found",
+        ) from exc
+
+    except PositionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="position not found",
+        ) from exc
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
