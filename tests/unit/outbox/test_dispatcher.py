@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, Mock, patch
 from uuid import UUID
 
 import pytest
-from services.outbox_dispatcher.dispatcher import (
-    OutboxDispatcher,
-)
 
 from libs.database.repositories.outbox import (
     ClaimedOutboxEvent,
+)
+from services.outbox_dispatcher.dispatcher import (
+    OutboxDispatcher,
 )
 from services.outbox_dispatcher.publisher import (
     EventBridgeOutboxPublisher,

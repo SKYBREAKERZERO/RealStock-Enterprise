@@ -10,402 +10,936 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-
 class Settings(BaseSettings):
+
     """
+
     Central application configuration for RealStock Enterprise.
 
     Configuration priority:
+
     1. Operating-system environment variables
+
     2. Project root .env file
+
     3. Field defaults
 
     Secrets must never be hard-coded in application code.
+
     """
 
     model_config = SettingsConfigDict(
+
         env_file=PROJECT_ROOT / ".env",
+
         env_file_encoding="utf-8",
+
         case_sensitive=False,
+
         extra="ignore",
+
         frozen=True,
+
     )
 
     # ---------------------------------------------------------
+
     # Application
+
     # ---------------------------------------------------------
 
     app_name: str = Field(
+
         default="realstock",
+
         validation_alias="APP_NAME",
+
     )
 
     app_env: Literal[
+
         "local",
+
         "dev",
+
         "staging",
+
         "prod",
+
     ] = Field(
+
         default="local",
+
         validation_alias="APP_ENV",
+
     )
 
     log_level: Literal[
+
         "DEBUG",
+
         "INFO",
+
         "WARNING",
+
         "ERROR",
+
         "CRITICAL",
+
     ] = Field(
+
         default="INFO",
+
         validation_alias="LOG_LEVEL",
+
     )
 
     # ---------------------------------------------------------
+
     # AWS / LocalStack
+
     # ---------------------------------------------------------
 
     aws_region: str = Field(
+
         default="ap-northeast-1",
+
         validation_alias="AWS_REGION",
+
     )
 
     aws_endpoint_url: str | None = Field(
+
         default=None,
+
         validation_alias="AWS_ENDPOINT_URL",
+
     )
 
     # ---------------------------------------------------------
+
+    # Market Data
+
+    # ---------------------------------------------------------
+
+    market_data_provider: Literal[
+
+        "mock",
+
+        "twelve_data",
+
+    ] = Field(
+
+        default="mock",
+
+        validation_alias="MARKET_DATA_PROVIDER",
+
+    )
+
+    twelve_data_api_key: SecretStr | None = Field(
+
+        default=None,
+
+        validation_alias="TWELVE_DATA_API_KEY",
+
+        repr=False,
+
+    )
+
+    # ---------------------------------------------------------
+
     # Transactional Outbox Dispatcher
+
     # ---------------------------------------------------------
 
     outbox_batch_size: int = Field(
+
         default=10,
+
         ge=1,
+
         le=1000,
+
         validation_alias="OUTBOX_BATCH_SIZE",
+
     )
 
     outbox_lease_seconds: int = Field(
+
         default=60,
+
         ge=1,
+
         le=3600,
+
         validation_alias="OUTBOX_LEASE_SECONDS",
+
     )
 
     outbox_poll_interval_seconds: float = Field(
+
         default=1.0,
+
         gt=0,
+
         le=60,
+
         validation_alias="OUTBOX_POLL_INTERVAL_SECONDS",
+
     )
 
     outbox_error_backoff_seconds: float = Field(
+
         default=5.0,
+
         gt=0,
+
         le=300,
+
         validation_alias="OUTBOX_ERROR_BACKOFF_SECONDS",
+
     )
 
     outbox_event_bus_name: str = Field(
+
         default="default",
+
         min_length=1,
+
         validation_alias="OUTBOX_EVENT_BUS_NAME",
+
     )
 
     outbox_metrics_namespace: str = Field(
+
         default="RealStock/Outbox",
+
         min_length=1,
+
         validation_alias="OUTBOX_METRICS_NAMESPACE",
+
     )
 
     outbox_metrics_interval_seconds: int = Field(
+
         default=30,
+
         ge=1,
+
         le=3600,
+
         validation_alias="OUTBOX_METRICS_INTERVAL_SECONDS",
+
     )
 
     # ---------------------------------------------------------
+
     # PostgreSQL
+
     # ---------------------------------------------------------
 
-    # AWS Secrets Manager secret identifier.
-    #
-    # Intended for dev/staging/prod environments where database
-    # credentials are retrieved at runtime rather than stored
-    # directly in application environment variables.
     database_secret_id: str | None = Field(
+
         default=None,
+
         validation_alias="DATABASE_SECRET_ID",
+
     )
 
-    # Legacy database configuration.
-    #
-    # DATABASE_URL remains supported for backward compatibility,
-    # local development, tests, and gradual migration.
-    #
-    # When structured DATABASE_* values are supplied, they take
-    # precedence and database_url is derived automatically.
     database_url: str = Field(
+
         default="",
+
         validation_alias="DATABASE_URL",
+
         repr=False,
+
     )
 
     database_host: str | None = Field(
+
         default=None,
+
         validation_alias="DATABASE_HOST",
+
     )
 
     database_port: int = Field(
+
         default=5432,
+
         ge=1,
+
         le=65535,
+
         validation_alias="DATABASE_PORT",
+
     )
 
     database_name: str | None = Field(
+
         default=None,
+
         validation_alias="DATABASE_NAME",
+
     )
 
     database_username: str | None = Field(
+
         default=None,
+
         validation_alias="DATABASE_USERNAME",
+
     )
 
     database_password: SecretStr | None = Field(
+
         default=None,
+
         validation_alias="DATABASE_PASSWORD",
+
         repr=False,
+
     )
 
     database_sslmode: str = Field(
+
         default="require",
+
         min_length=1,
+
         validation_alias="DATABASE_SSLMODE",
+
     )
 
     # ---------------------------------------------------------
+
     # Redis
+
     # ---------------------------------------------------------
 
     redis_url: str = Field(
+
         validation_alias="REDIS_URL",
+
     )
 
     # ---------------------------------------------------------
+
+    # Market Snapshot Cache
+
+    # ---------------------------------------------------------
+
+    market_quote_cache_ttl_seconds: int = Field(
+
+        default=60,
+
+        ge=1,
+
+        le=3600,
+
+        validation_alias="MARKET_QUOTE_CACHE_TTL_SECONDS",
+
+    )
+
+    market_quote_stale_ttl_seconds: int = Field(
+
+        default=900,
+
+        ge=60,
+
+        le=86400,
+
+        validation_alias="MARKET_QUOTE_STALE_TTL_SECONDS",
+
+    )
+
+    # ---------------------------------------------------------
+
+    # Market Candlestick Cache
+
+    # ---------------------------------------------------------
+
+    market_candle_day_fresh_ttl_seconds: int = Field(
+
+        default=60,
+
+        ge=1,
+
+        le=3600,
+
+        validation_alias="MARKET_CANDLE_DAY_FRESH_TTL_SECONDS",
+
+    )
+
+    market_candle_day_stale_ttl_seconds: int = Field(
+
+        default=900,
+
+        ge=60,
+
+        le=86400,
+
+        validation_alias="MARKET_CANDLE_DAY_STALE_TTL_SECONDS",
+
+    )
+
+    market_candle_week_fresh_ttl_seconds: int = Field(
+
+        default=300,
+
+        ge=60,
+
+        le=86400,
+
+        validation_alias="MARKET_CANDLE_WEEK_FRESH_TTL_SECONDS",
+
+    )
+
+    market_candle_week_stale_ttl_seconds: int = Field(
+
+        default=21600,
+
+        ge=300,
+
+        le=604800,
+
+        validation_alias="MARKET_CANDLE_WEEK_STALE_TTL_SECONDS",
+
+    )
+
+    market_candle_month_fresh_ttl_seconds: int = Field(
+
+        default=900,
+
+        ge=60,
+
+        le=86400,
+
+        validation_alias="MARKET_CANDLE_MONTH_FRESH_TTL_SECONDS",
+
+    )
+
+    market_candle_month_stale_ttl_seconds: int = Field(
+
+        default=86400,
+
+        ge=900,
+
+        le=2592000,
+
+        validation_alias="MARKET_CANDLE_MONTH_STALE_TTL_SECONDS",
+
+    )
+
+    market_batch_max_symbols: int = Field(
+
+        default=8,
+
+        ge=1,
+
+        le=50,
+
+        validation_alias="MARKET_BATCH_MAX_SYMBOLS",
+
+    )
+
+    # ---------------------------------------------------------
+
     # Database validation / resolution
+
     # ---------------------------------------------------------
 
     @model_validator(mode="after")
-    def validate_database_configuration(self) -> Settings:
+
+    def validate_database_configuration(
+
+        self,
+
+    ) -> Settings:
+
         """
+
         Validate supported database configuration modes.
 
         Supported modes:
 
         1. Legacy DATABASE_URL
+
         2. Structured DATABASE_* configuration
+
         3. DATABASE_SECRET_ID for non-local AWS environments
 
         Structured DATABASE_* configuration takes precedence over
+
         DATABASE_URL when any structured credential field is supplied.
 
         Settings does not access AWS Secrets Manager directly.
+
         DATABASE_SECRET_ID only identifies the secret that the database
+
         credential resolver will retrieve later.
+
         """
 
         structured_database_configured = any(
+
             value is not None
+
             for value in (
+
                 self.database_host,
+
                 self.database_name,
+
                 self.database_username,
+
                 self.database_password,
+
             )
+
         )
 
         secret_configured = bool(
+
             self.database_secret_id
+
             and self.database_secret_id.strip()
+
         )
 
-        # -----------------------------------------------------
-        # Structured DATABASE_* mode
-        # -----------------------------------------------------
-
         if structured_database_configured:
+
             missing_fields: list[str] = []
 
             if (
+
                 self.database_host is None
+
                 or not self.database_host.strip()
-            ):
-                missing_fields.append("DATABASE_HOST")
 
-            if (
-                self.database_name is None
-                or not self.database_name.strip()
             ):
-                missing_fields.append("DATABASE_NAME")
 
-            if (
-                self.database_username is None
-                or not self.database_username.strip()
-            ):
-                missing_fields.append("DATABASE_USERNAME")
+                missing_fields.append(
 
-            if (
-                self.database_password is None
-                or not self.database_password.get_secret_value()
-            ):
-                missing_fields.append("DATABASE_PASSWORD")
+                    "DATABASE_HOST"
 
-            if missing_fields:
-                raise ValueError(
-                    "Incomplete structured database configuration. "
-                    f"Missing: {', '.join(missing_fields)}"
                 )
 
-            # The checks above guarantee these values are populated.
+            if (
+
+                self.database_name is None
+
+                or not self.database_name.strip()
+
+            ):
+
+                missing_fields.append(
+
+                    "DATABASE_NAME"
+
+                )
+
+            if (
+
+                self.database_username is None
+
+                or not self.database_username.strip()
+
+            ):
+
+                missing_fields.append(
+
+                    "DATABASE_USERNAME"
+
+                )
+
+            if (
+
+                self.database_password is None
+
+                or not self.database_password.get_secret_value()
+
+            ):
+
+                missing_fields.append(
+
+                    "DATABASE_PASSWORD"
+
+                )
+
+            if missing_fields:
+
+                raise ValueError(
+
+                    "Incomplete structured database configuration. "
+
+                    f"Missing: {', '.join(missing_fields)}"
+
+                )
+
             assert self.database_host is not None
+
             assert self.database_name is not None
+
             assert self.database_username is not None
+
             assert self.database_password is not None
 
             host = self.database_host.strip()
+
             database_name = quote_plus(
+
                 self.database_name.strip()
+
             )
+
             username = quote_plus(
+
                 self.database_username.strip()
+
             )
+
             password = quote_plus(
-                self.database_password.get_secret_value()
+
+                self.database_password
+
+                .get_secret_value()
+
             )
+
             sslmode = quote_plus(
+
                 self.database_sslmode.strip()
+
             )
 
             resolved_database_url = (
+
                 "postgresql+psycopg://"
+
                 f"{username}:{password}"
+
                 f"@{host}:{self.database_port}"
+
                 f"/{database_name}"
+
                 f"?sslmode={sslmode}"
+
             )
 
-            # Settings is frozen to prevent accidental runtime
-            # mutation. This controlled assignment resolves the
-            # effective URL during model construction.
             object.__setattr__(
+
                 self,
+
                 "database_url",
+
                 resolved_database_url,
+
             )
 
             return self
 
-        # -----------------------------------------------------
-        # AWS Secrets Manager mode
-        # -----------------------------------------------------
-
         if secret_configured:
+
             if self.app_env == "local":
+
                 if not self.database_url.strip():
+
                     raise ValueError(
+
                         "Local environments require DATABASE_URL or "
+
                         "structured DATABASE_* configuration. "
+
                         "DATABASE_SECRET_ID alone is not sufficient."
+
                     )
 
                 return self
 
-            # Non-local environments may intentionally have no
-            # DATABASE_URL. credentials.py will retrieve the secret
-            # and construct the effective database URL.
             return self
-
-        # -----------------------------------------------------
-        # Legacy DATABASE_URL mode
-        # -----------------------------------------------------
 
         if self.database_url.strip():
+
             return self
 
-        # -----------------------------------------------------
-        # No valid database configuration
-        # -----------------------------------------------------
-
         raise ValueError(
+
             "Database configuration is required. Provide DATABASE_URL, "
+
             "structured DATABASE_* configuration, or DATABASE_SECRET_ID "
+
             "for a non-local environment."
+
         )
 
     # ---------------------------------------------------------
-    # Environment validation
+
+    # Market data validation
+
     # ---------------------------------------------------------
 
     @model_validator(mode="after")
-    def validate_environment(self) -> Settings:
-        """
-        Validate environment-specific configuration.
 
-        Local development must use LocalStack.
-        Non-local environments must not point to LocalStack.
+    def validate_market_data_configuration(
+
+        self,
+
+    ) -> Settings:
+
         """
 
-        if self.app_env == "local":
-            if not self.aws_endpoint_url:
+        Validate market-data provider configuration.
+
+        """
+
+        if self.market_data_provider == "mock":
+
+            return self
+
+        if self.market_data_provider == "twelve_data":
+
+            if self.twelve_data_api_key is None:
+
                 raise ValueError(
-                    "AWS_ENDPOINT_URL is required when APP_ENV=local"
+
+                    "TWELVE_DATA_API_KEY is required when "
+
+                    "MARKET_DATA_PROVIDER=twelve_data"
+
                 )
 
-        else:
-            if self.aws_endpoint_url:
+            api_key = (
+
+                self.twelve_data_api_key
+
+                .get_secret_value()
+
+                .strip()
+
+            )
+
+            if not api_key:
+
                 raise ValueError(
-                    "AWS_ENDPOINT_URL must not be configured "
-                    "outside the local environment"
+
+                    "TWELVE_DATA_API_KEY is required when "
+
+                    "MARKET_DATA_PROVIDER=twelve_data"
+
                 )
 
         return self
 
     # ---------------------------------------------------------
+
+    # Market cache validation
+
+    # ---------------------------------------------------------
+
+    @model_validator(mode="after")
+
+    def validate_market_cache_configuration(
+
+        self,
+
+    ) -> Settings:
+
+        if (
+
+            self.market_quote_stale_ttl_seconds
+
+            <= self.market_quote_cache_ttl_seconds
+
+        ):
+
+            raise ValueError(
+
+                "MARKET_QUOTE_STALE_TTL_SECONDS must be "
+
+                "greater than MARKET_QUOTE_CACHE_TTL_SECONDS"
+
+            )
+
+        candle_ttl_pairs = (
+
+            (
+
+                "DAY",
+
+                self.market_candle_day_fresh_ttl_seconds,
+
+                self.market_candle_day_stale_ttl_seconds,
+
+            ),
+
+            (
+
+                "WEEK",
+
+                self.market_candle_week_fresh_ttl_seconds,
+
+                self.market_candle_week_stale_ttl_seconds,
+
+            ),
+
+            (
+
+                "MONTH",
+
+                self.market_candle_month_fresh_ttl_seconds,
+
+                self.market_candle_month_stale_ttl_seconds,
+
+            ),
+
+        )
+
+        for (
+
+            range_name,
+
+            fresh_ttl_seconds,
+
+            stale_ttl_seconds,
+
+        ) in candle_ttl_pairs:
+
+            if stale_ttl_seconds <= fresh_ttl_seconds:
+
+                raise ValueError(
+
+                    f"MARKET_CANDLE_{range_name}_STALE_TTL_SECONDS "
+
+                    "must be greater than "
+
+                    f"MARKET_CANDLE_{range_name}_FRESH_TTL_SECONDS"
+
+                )
+
+        return self
+
+    # ---------------------------------------------------------
+
+    # Environment validation
+
+    # ---------------------------------------------------------
+
+    @model_validator(mode="after")
+
+    def validate_environment(
+
+        self,
+
+    ) -> Settings:
+
+        """
+
+        Validate environment-specific configuration.
+
+        """
+
+        if self.app_env == "local":
+
+            if not self.aws_endpoint_url:
+
+                raise ValueError(
+
+                    "AWS_ENDPOINT_URL is required when APP_ENV=local"
+
+                )
+
+        elif self.aws_endpoint_url:
+
+            raise ValueError(
+
+                "AWS_ENDPOINT_URL must not be configured "
+
+                "outside the local environment"
+
+            )
+
+        return self
+
+    # ---------------------------------------------------------
+
     # Environment helpers
+
     # ---------------------------------------------------------
 
     @property
+
     def is_local(self) -> bool:
+
         return self.app_env == "local"
 
     @property
+
     def is_development(self) -> bool:
+
         return self.app_env == "dev"
 
     @property
+
     def is_staging(self) -> bool:
+
         return self.app_env == "staging"
 
     @property
+
     def is_production(self) -> bool:
+
         return self.app_env == "prod"
 
     @property
+
     def use_localstack(self) -> bool:
+
         return (
+
             self.is_local
+
             and bool(self.aws_endpoint_url)
+
         )
 
-
 @lru_cache(maxsize=1)
+
 def get_settings() -> Settings:
+
     """
+
     Return one immutable cached Settings instance per Python process.
+
     """
 
     return Settings()
+
+core_allowed_origins: str = Field(
+
+    default=(
+
+        "http://127.0.0.1:5173,"
+
+        "http://localhost:5173"
+
+    ),
+
+    validation_alias="CORS_ALLOWED_ORIGINS",
+
+)
+
+@property
+
+def cors_origins(self) -> list[str]:
+
+    return [
+
+        origin.strip()
+
+        for origin in self.cors_allowed_origins.split(",")
+
+        if origin.strip()
+
+    ]

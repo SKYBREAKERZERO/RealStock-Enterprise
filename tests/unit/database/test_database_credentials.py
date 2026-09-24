@@ -19,7 +19,15 @@ pytestmark = pytest.mark.unit
 def _settings(
     *,
     app_env: Literal["local", "dev", "staging", "prod"] = "local",
+    database_url: str | None = None,
 ) -> Settings:
+    if database_url is None and app_env == "local":
+        database_url = (
+            "postgresql+psycopg://"
+            "realstock:local-password"
+            "@localhost:15432/realstock"
+        )
+
     return Settings(
         _env_file=None,
         APP_ENV=app_env,
@@ -29,10 +37,11 @@ def _settings(
             if app_env == "local"
             else None
         ),
-        DATABASE_URL=(
-            "postgresql+psycopg://"
-            "realstock:local-password"
-            "@localhost:15432/realstock"
+        DATABASE_URL=database_url or "",
+        DATABASE_SECRET_ID=(
+            "realstock/test/database"
+            if app_env != "local" and not database_url
+            else None
         ),
         REDIS_URL="redis://localhost:6379/0",
     )
@@ -72,6 +81,34 @@ def test_local_environment_does_not_call_secrets_manager() -> None:
     assert credentials.sslmode is None
 
 
+def test_non_local_environment_prefers_injected_database_url() -> None:
+    client = Mock()
+
+    database_url = (
+        "postgresql+psycopg://"
+        "realstock_app:ecs-secret-password"
+        "@realstock-dev-database.proxy-test."
+        "ap-northeast-1.rds.amazonaws.com:5432/realstock"
+        "?sslmode=require"
+    )
+
+    credentials = resolve_database_credentials(
+        _settings(
+            app_env="dev",
+            database_url=database_url,
+        ),
+        secret_id="should-not-be-used",
+        secrets_client=client,
+    )
+
+    client.get_secret_value.assert_not_called()
+
+    assert credentials.database == "realstock"
+    assert credentials.username == "realstock_app"
+    assert credentials.password == "ecs-secret-password"
+    assert credentials.sslmode == "require"
+
+
 def test_non_local_environment_reads_secrets_manager() -> None:
     client = Mock()
 
@@ -80,7 +117,7 @@ def test_non_local_environment_reads_secrets_manager() -> None:
     }
 
     credentials = resolve_database_credentials(
-        _settings(app_env="dev"),
+        _settings(app_env="dev", database_url=""),
         secret_id="realstock/dev/database",
         secrets_client=client,
     )
@@ -112,7 +149,7 @@ def test_database_secret_builds_safe_database_url() -> None:
     }
 
     credentials = resolve_database_credentials(
-        _settings(app_env="prod"),
+        _settings(app_env="prod", database_url=""),
         secret_id="realstock/prod/database",
         secrets_client=client,
     )
@@ -143,21 +180,6 @@ def test_database_secret_requires_complete_credentials() -> None:
             secret_id="realstock/dev/database",
             secrets_client=client,
         )
-
-
-def test_non_local_environment_requires_secret_id() -> None:
-    client = Mock()
-
-    with pytest.raises(
-        DatabaseCredentialsError,
-        match="secret ID is required",
-    ):
-        resolve_database_credentials(
-            _settings(app_env="dev"),
-            secrets_client=client,
-        )
-
-    client.get_secret_value.assert_not_called()
 
 
 def test_invalid_secret_json_fails_fast() -> None:
@@ -214,7 +236,7 @@ def test_database_credentials_repr_does_not_expose_password() -> None:
     }
 
     credentials = resolve_database_credentials(
-        _settings(app_env="dev"),
+        _settings(app_env="dev", database_url=""),
         secret_id="realstock/dev/database",
         secrets_client=client,
     )

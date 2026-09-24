@@ -183,9 +183,16 @@ def resolve_database_credentials(
     """
     Resolve effective database credentials.
 
-    Local environments use DATABASE_URL.
+    DATABASE_URL is preferred whenever it is already available.
 
-    Non-local environments use AWS Secrets Manager.
+    This supports both:
+    - local development, where DATABASE_URL is configured directly;
+    - ECS secret injection, where AWS Secrets Manager injects
+      DATABASE_URL into the container environment.
+
+    When DATABASE_URL is unavailable, non-local environments may
+    resolve structured credentials from AWS Secrets Manager by using
+    DATABASE_SECRET_ID.
 
     Secret ID priority:
         explicit secret_id
@@ -193,9 +200,14 @@ def resolve_database_credentials(
         settings.database_secret_id
     """
 
-    if settings.is_local:
+    if settings.database_url.strip():
         return DatabaseCredentials.from_database_url(
             settings.database_url
+        )
+
+    if settings.is_local:
+        raise DatabaseCredentialsError(
+            "Local environments require DATABASE_URL."
         )
 
     resolved_secret_id = (

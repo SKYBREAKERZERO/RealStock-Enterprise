@@ -59,7 +59,60 @@ class PositionValuation(BaseModel):
         position: Position,
         quote: MarketQuote | None,
     ) -> PositionValuation:
+        """
+        Build a valuation from the legacy bid/ask MarketQuote.
+
+        The valuation price is the quote midpoint.
+        """
+
         if quote is None:
+            return cls.from_market_price(
+                position=position,
+                market_price=None,
+                quote_timestamp=None,
+            )
+
+        if (
+            quote.market != position.market
+            or quote.symbol != position.symbol
+        ):
+            raise ValueError(
+                "quote instrument does not match position"
+            )
+
+        return cls.from_market_price(
+            position=position,
+            market_price=quote.mid_price,
+            quote_timestamp=quote.timestamp,
+        )
+
+    @classmethod
+    def from_market_price(
+        cls,
+        *,
+        position: Position,
+        market_price: Decimal | None,
+        quote_timestamp: datetime | None,
+    ) -> PositionValuation:
+        """
+        Build a valuation from an explicit market price.
+
+        The caller owns the valuation-price policy. Examples:
+        - MarketQuote midpoint
+        - Twelve Data snapshot close
+        - another approved market-data source
+
+        Missing market data remains explicit and must never
+        be interpreted as a zero price.
+        """
+
+        if market_price is None:
+            if quote_timestamp is not None:
+                raise ValueError(
+                    "missing market price must not contain "
+                    "a quote timestamp"
+                )
+
             return cls(
                 position_id=position.position_id,
                 symbol=position.symbol,
@@ -75,15 +128,15 @@ class PositionValuation(BaseModel):
                 quote_available=False,
             )
 
-        if (
-            quote.market != position.market
-            or quote.symbol != position.symbol
-        ):
+        if quote_timestamp is None:
             raise ValueError(
-                "quote instrument does not match position"
+                "priced position requires a quote timestamp"
             )
 
-        market_price = quote.mid_price
+        if market_price <= Decimal("0"):
+            raise ValueError(
+                "market price must be greater than zero"
+            )
 
         market_value = (
             position.quantity
@@ -114,7 +167,7 @@ class PositionValuation(BaseModel):
             unrealized_pnl_percent=(
                 unrealized_pnl_percent
             ),
-            quote_timestamp=quote.timestamp,
+            quote_timestamp=quote_timestamp,
             quote_available=True,
         )
 
@@ -228,7 +281,9 @@ class PortfolioValuation(BaseModel):
             start=Decimal("0"),
         )
 
-        priced_positions = len(priced)
+        priced_positions = len(
+            priced
+        )
 
         missing_quotes = (
             len(positions)
@@ -236,7 +291,9 @@ class PortfolioValuation(BaseModel):
         )
 
         return cls(
-            portfolio_id=portfolio.portfolio_id,
+            portfolio_id=(
+                portfolio.portfolio_id
+            ),
             total_cost_basis=(
                 portfolio.total_cost_basis
             ),

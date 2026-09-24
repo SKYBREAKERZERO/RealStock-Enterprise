@@ -249,7 +249,7 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
 
-    image: realstock-api:day16
+    image: realstock-api:1.0.0
     container_name: realstock-api
     restart: unless-stopped
 
@@ -260,6 +260,7 @@ services:
       APP_ENV: local
       APP_NAME: realstock-api
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
 
       # --------------------------------------------------------
       # AWS / LocalStack
@@ -279,6 +280,12 @@ services:
       # Redis
       # --------------------------------------------------------
       REDIS_URL: "redis://redis:6379/0"
+
+      # --------------------------------------------------------
+      # Market Data
+      # --------------------------------------------------------
+      MARKET_DATA_PROVIDER: "${MARKET_DATA_PROVIDER:-mock}"
+      TWELVE_DATA_API_KEY: "${TWELVE_DATA_API_KEY:-}"
 
     ports:
       - "127.0.0.1:18000:8000"
@@ -336,7 +343,7 @@ services:
       context: .
       dockerfile: services/outbox_dispatcher/Dockerfile
 
-    image: realstock-outbox-dispatcher:day30
+    image: realstock-outbox-dispatcher:1.0.0
     container_name: realstock-outbox-dispatcher
     restart: unless-stopped
 
@@ -402,6 +409,45 @@ services:
 
     networks:
       - realstock-local
+
+
+  # ============================================================
+  # Frontend
+  # ============================================================
+  # Production Vite build served by nginx.
+  #
+  # Runtime routing:
+  #   /         -> React SPA
+  #   /api/*    -> api:8000
+  #   /health*  -> api:8000
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+
+    image: realstock-frontend:1.0.0
+    container_name: realstock-frontend
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:18080:80"
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    networks:
+      - realstock-local
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
 
 
 # ==============================================================

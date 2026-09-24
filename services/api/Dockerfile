@@ -61,6 +61,12 @@ RUN python -m pip install \
         realstock-enterprise \
     && rm -rf /wheels
 
+# Keep Alembic configuration and migration scripts in the runtime image.
+# The same immutable image can be used for both the long-running API
+# service and a one-off ECS migration task before application rollout.
+COPY database/alembic.ini /app/database/alembic.ini
+COPY database/migrations /app/database/migrations
+
 USER 10001:10001
 
 EXPOSE 8000

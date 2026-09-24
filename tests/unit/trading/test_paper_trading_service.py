@@ -17,6 +17,7 @@ from libs.trading.exceptions import (
 from libs.trading.market import MarketQuote
 from libs.trading.models import (
     PaperAccount,
+    PaperOrder,
     Position,
 )
 from libs.trading.paper_broker import PaperBroker
@@ -68,6 +69,7 @@ def build_uow(
     *,
     account: PaperAccount | None,
     position: Position | None = None,
+    order: PaperOrder | None = None,
 ) -> Mock:
     uow = Mock()
 
@@ -85,6 +87,14 @@ def build_uow(
 
     uow.paper_positions.get_for_update.return_value = (
         position
+    )
+
+    uow.paper_orders.get.return_value = (
+        order
+    )
+
+    uow.paper_orders.get_for_update.return_value = (
+        order
     )
 
     uow.paper_accounts.get.side_effect = AssertionError(
@@ -220,6 +230,7 @@ def test_market_buy_updates_existing_position() -> None:
     )
 
     assert result.order.status == OrderStatus.FILLED
+
     assert position.quantity == 10
 
     assert (
@@ -291,6 +302,7 @@ def test_market_sell_persists_complete_trade() -> None:
     )
 
     assert result.execution.quantity == 10
+
     assert position.quantity == 10
 
     assert (
@@ -532,9 +544,11 @@ def test_submit_limit_buy_persists_pending_order_only() -> None:
 
     assert order.account_id == account.account_id
     assert order.symbol == "AAPL"
+
     assert order.side == OrderSide.BUY
     assert order.order_type == OrderType.LIMIT
     assert order.status == OrderStatus.PENDING
+
     assert order.quantity == 10
     assert order.filled_quantity == 0
 
@@ -595,9 +609,11 @@ def test_submit_limit_sell_persists_pending_order_only() -> None:
 
     assert order.account_id == account.account_id
     assert order.symbol == "AAPL"
+
     assert order.side == OrderSide.SELL
     assert order.order_type == OrderType.LIMIT
     assert order.status == OrderStatus.PENDING
+
     assert order.quantity == 10
     assert order.filled_quantity == 0
 
@@ -631,5 +647,409 @@ def test_submit_limit_sell_persists_pending_order_only() -> None:
     )
 
     uow.paper_executions.add.assert_not_called()
+
+    uow.commit.assert_called_once_with()
+
+
+def test_process_limit_buy_stays_pending_when_ask_is_above_limit() -> None:
+    account = PaperAccount(
+        initial_cash=Decimal("100000"),
+    )
+
+    position = Position(
+        symbol="AAPL",
+    )
+
+    submission_service = build_trading_service(
+        bid="210",
+        ask="212",
+    )
+
+    order = submission_service.submit_limit_buy(
+        account=account,
+        position=position,
+        quantity=10,
+        limit_price=Decimal("200"),
+    )
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    uow = build_uow(
+        account=account,
+        position=position,
+        order=order,
+    )
+
+    service = PersistentPaperTradingService(
+        trading_service=build_trading_service(
+            bid="210",
+            ask="212",
+        ),
+        unit_of_work=uow,
+    )
+
+    execution = service.process_limit_order(
+        order_id=order.order_id,
+    )
+
+    assert execution is None
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    assert (
+        account.cash_balance
+        == Decimal("100000")
+    )
+
+    assert position.quantity == 0
+
+    uow.paper_orders.get.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_accounts.get_for_update.assert_called_once_with(
+        account.account_id
+    )
+
+    uow.paper_orders.get_for_update.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_positions.get_for_update.assert_called_once_with(
+        account_id=account.account_id,
+        symbol="AAPL",
+    )
+
+    uow.paper_accounts.update.assert_not_called()
+    uow.paper_positions.upsert.assert_not_called()
+
+    uow.paper_orders.add.assert_not_called()
+    uow.paper_orders.update.assert_not_called()
+
+    uow.paper_executions.add.assert_not_called()
+
+    uow.commit.assert_called_once_with()
+
+
+def test_process_limit_buy_fills_when_ask_reaches_limit() -> None:
+    account = PaperAccount(
+        initial_cash=Decimal("100000"),
+    )
+
+    position = Position(
+        symbol="AAPL",
+    )
+
+    submission_service = build_trading_service(
+        bid="210",
+        ask="212",
+    )
+
+    order = submission_service.submit_limit_buy(
+        account=account,
+        position=position,
+        quantity=10,
+        limit_price=Decimal("200"),
+    )
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    uow = build_uow(
+        account=account,
+        position=position,
+        order=order,
+    )
+
+    service = PersistentPaperTradingService(
+        trading_service=build_trading_service(
+            bid="198",
+            ask="199",
+        ),
+        unit_of_work=uow,
+    )
+
+    execution = service.process_limit_order(
+        order_id=order.order_id,
+    )
+
+    assert execution is not None
+
+    assert execution.order_id == order.order_id
+    assert execution.symbol == "AAPL"
+    assert execution.side == OrderSide.BUY
+    assert execution.quantity == 10
+
+    assert (
+        execution.price
+        == Decimal("199")
+    )
+
+    assert order.status == OrderStatus.FILLED
+    assert order.filled_quantity == 10
+
+    assert (
+        account.cash_balance
+        == Decimal("98010")
+    )
+
+    assert position.quantity == 10
+
+    assert (
+        position.average_cost
+        == Decimal("199")
+    )
+
+    uow.paper_orders.get.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_accounts.get_for_update.assert_called_once_with(
+        account.account_id
+    )
+
+    uow.paper_orders.get_for_update.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_positions.get_for_update.assert_called_once_with(
+        account_id=account.account_id,
+        symbol="AAPL",
+    )
+
+    uow.paper_accounts.update.assert_called_once_with(
+        account
+    )
+
+    uow.paper_positions.upsert.assert_called_once_with(
+        account_id=account.account_id,
+        position=position,
+    )
+
+    # The order already exists because LIMIT submission persisted it.
+    # Processing must UPDATE the existing order, not INSERT it again.
+    uow.paper_orders.add.assert_not_called()
+
+    uow.paper_orders.update.assert_called_once_with(
+        order
+    )
+
+    uow.paper_executions.add.assert_called_once_with(
+        account_id=account.account_id,
+        execution=execution,
+    )
+
+    uow.commit.assert_called_once_with()
+
+
+def test_process_limit_sell_stays_pending_when_bid_is_below_limit() -> None:
+    account = PaperAccount(
+        initial_cash=Decimal("100000"),
+    )
+
+    position = Position(
+        symbol="AAPL",
+        quantity=10,
+        average_cost=Decimal("200"),
+    )
+
+    submission_service = build_trading_service(
+        bid="210",
+        ask="212",
+    )
+
+    order = submission_service.submit_limit_sell(
+        account=account,
+        position=position,
+        quantity=5,
+        limit_price=Decimal("220"),
+    )
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    uow = build_uow(
+        account=account,
+        position=position,
+        order=order,
+    )
+
+    service = PersistentPaperTradingService(
+        trading_service=build_trading_service(
+            bid="210",
+            ask="212",
+        ),
+        unit_of_work=uow,
+    )
+
+    execution = service.process_limit_order(
+        order_id=order.order_id,
+    )
+
+    assert execution is None
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    assert (
+        account.cash_balance
+        == Decimal("100000")
+    )
+
+    assert position.quantity == 10
+
+    assert (
+        position.average_cost
+        == Decimal("200")
+    )
+
+    assert (
+        position.realized_pnl
+        == Decimal("0")
+    )
+
+    uow.paper_orders.get.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_accounts.get_for_update.assert_called_once_with(
+        account.account_id
+    )
+
+    uow.paper_orders.get_for_update.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_positions.get_for_update.assert_called_once_with(
+        account_id=account.account_id,
+        symbol="AAPL",
+    )
+
+    uow.paper_accounts.update.assert_not_called()
+    uow.paper_positions.upsert.assert_not_called()
+
+    uow.paper_orders.add.assert_not_called()
+    uow.paper_orders.update.assert_not_called()
+
+    uow.paper_executions.add.assert_not_called()
+
+    uow.commit.assert_called_once_with()
+
+
+def test_process_limit_sell_fills_when_bid_reaches_limit() -> None:
+    account = PaperAccount(
+        initial_cash=Decimal("100000"),
+    )
+
+    position = Position(
+        symbol="AAPL",
+        quantity=10,
+        average_cost=Decimal("200"),
+    )
+
+    submission_service = build_trading_service(
+        bid="210",
+        ask="212",
+    )
+
+    order = submission_service.submit_limit_sell(
+        account=account,
+        position=position,
+        quantity=5,
+        limit_price=Decimal("220"),
+    )
+
+    assert order.status == OrderStatus.PENDING
+    assert order.filled_quantity == 0
+
+    uow = build_uow(
+        account=account,
+        position=position,
+        order=order,
+    )
+
+    service = PersistentPaperTradingService(
+        trading_service=build_trading_service(
+            bid="225",
+            ask="226",
+        ),
+        unit_of_work=uow,
+    )
+
+    execution = service.process_limit_order(
+        order_id=order.order_id,
+    )
+
+    assert execution is not None
+
+    assert execution.order_id == order.order_id
+    assert execution.symbol == "AAPL"
+    assert execution.side == OrderSide.SELL
+    assert execution.quantity == 5
+
+    assert (
+        execution.price
+        == Decimal("225")
+    )
+
+    assert order.status == OrderStatus.FILLED
+    assert order.filled_quantity == 5
+
+    assert (
+        account.cash_balance
+        == Decimal("101125")
+    )
+
+    assert position.quantity == 5
+
+    assert (
+        position.average_cost
+        == Decimal("200")
+    )
+
+    assert (
+        position.realized_pnl
+        == Decimal("125")
+    )
+
+    uow.paper_orders.get.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_accounts.get_for_update.assert_called_once_with(
+        account.account_id
+    )
+
+    uow.paper_orders.get_for_update.assert_called_once_with(
+        order.order_id
+    )
+
+    uow.paper_positions.get_for_update.assert_called_once_with(
+        account_id=account.account_id,
+        symbol="AAPL",
+    )
+
+    uow.paper_accounts.update.assert_called_once_with(
+        account
+    )
+
+    uow.paper_positions.upsert.assert_called_once_with(
+        account_id=account.account_id,
+        position=position,
+    )
+
+    # Existing LIMIT order: UPDATE, never INSERT again.
+    uow.paper_orders.add.assert_not_called()
+
+    uow.paper_orders.update.assert_called_once_with(
+        order
+    )
+
+    uow.paper_executions.add.assert_called_once_with(
+        account_id=account.account_id,
+        execution=execution,
+    )
 
     uow.commit.assert_called_once_with()

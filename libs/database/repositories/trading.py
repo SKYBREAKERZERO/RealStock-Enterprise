@@ -70,6 +70,13 @@ class PaperAccountRepository:
         self,
         account_id: UUID,
     ) -> PaperAccount | None:
+        """
+        Load an account using SELECT ... FOR UPDATE.
+
+        The row lock is held until the surrounding transaction
+        commits or rolls back.
+        """
+
         statement = (
             select(
                 PaperAccountModel
@@ -162,6 +169,13 @@ class PaperPositionRepository:
         account_id: UUID,
         symbol: str,
     ) -> Position | None:
+        """
+        Load a position using SELECT ... FOR UPDATE.
+
+        Existing positions are pessimistically locked until the
+        surrounding transaction commits or rolls back.
+        """
+
         normalized_symbol = (
             symbol
             .strip()
@@ -272,9 +286,11 @@ class PaperOrderRepository:
 
         # paper_executions.order_id references paper_orders.id.
         #
-        # Flush the order before an execution is inserted so PostgreSQL
-        # can satisfy the foreign-key dependency. flush() does not commit;
-        # the UnitOfWork still owns the transaction boundary.
+        # Flush the order before an execution is inserted so that
+        # PostgreSQL can satisfy the foreign-key dependency.
+        #
+        # flush() does not commit. UnitOfWork remains responsible
+        # for the transaction boundary.
         self._session.flush()
 
     def get(
@@ -311,6 +327,16 @@ class PaperOrderRepository:
         self,
         order_id: UUID,
     ) -> PaperOrder | None:
+        """
+        Load an order using SELECT ... FOR UPDATE.
+
+        This lock protects a persisted PENDING LIMIT order from
+        concurrent processing.
+
+        The row lock remains held until the surrounding UnitOfWork
+        transaction commits or rolls back.
+        """
+
         statement = (
             select(
                 PaperOrderModel

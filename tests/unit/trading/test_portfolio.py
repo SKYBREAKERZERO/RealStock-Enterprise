@@ -1,9 +1,9 @@
 from decimal import Decimal
 
 import pytest
-from libs.trading.portfolio import PortfolioCalculator
 
 from libs.trading.models import PaperAccount, Position
+from libs.trading.portfolio import PortfolioCalculator
 
 
 def test_portfolio_calculates_equity() -> None:

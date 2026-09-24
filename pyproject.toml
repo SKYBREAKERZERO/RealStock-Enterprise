@@ -10,6 +10,7 @@ description = "Enterprise-grade real-time stock market data and risk monitoring 
 requires-python = ">=3.12,<3.13"
 
 dependencies = [
+    "httpx>=0.28,<1",
     "boto3>=1.43,<2",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.15,<3",

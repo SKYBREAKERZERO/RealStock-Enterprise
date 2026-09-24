@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -33,10 +34,6 @@ class PortfolioRepository:
     ) -> None:
         self._session = session
 
-    # ==========================================================
-    # Portfolio
-    # ==========================================================
-
     def create_portfolio(
         self,
         portfolio: Portfolio,
@@ -53,9 +50,16 @@ class PortfolioRepository:
         self._session.add(model)
         self._session.flush()
 
-        return self.get_portfolio(
+        result = self.get_portfolio(
             portfolio.portfolio_id
         )
+
+        if result is None:
+            raise RuntimeError(
+                "created portfolio could not be reloaded"
+            )
+
+        return result
 
     def get_portfolio(
         self,
@@ -122,10 +126,6 @@ class PortfolioRepository:
             for model in models
         ]
 
-    # ==========================================================
-    # Position
-    # ==========================================================
-
     def add_position(
         self,
         *,
@@ -144,6 +144,12 @@ class PortfolioRepository:
         )
 
         self._session.add(model)
+
+        self._touch_portfolio(
+            portfolio_id=portfolio_id,
+            timestamp=position.updated_at,
+        )
+
         self._session.flush()
 
         return self._to_domain_position(
@@ -186,6 +192,131 @@ class PortfolioRepository:
             model
         )
 
+    def get_position_by_id(
+        self,
+        *,
+        portfolio_id: UUID,
+        position_id: UUID,
+        for_update: bool = False,
+    ) -> Position | None:
+        statement = (
+            select(PositionModel)
+            .where(
+                PositionModel.portfolio_id
+                == portfolio_id,
+                PositionModel.id
+                == position_id,
+            )
+        )
+
+        if for_update:
+            statement = (
+                statement.with_for_update()
+            )
+
+        model = (
+            self._session
+            .execute(statement)
+            .scalar_one_or_none()
+        )
+
+        if model is None:
+            return None
+
+        return self._to_domain_position(
+            model
+        )
+
+    def update_position(
+        self,
+        *,
+        portfolio_id: UUID,
+        position: Position,
+    ) -> Position | None:
+        statement = (
+            select(PositionModel)
+            .where(
+                PositionModel.portfolio_id
+                == portfolio_id,
+                PositionModel.id
+                == position.position_id,
+            )
+        )
+
+        model = (
+            self._session
+            .execute(statement)
+            .scalar_one_or_none()
+        )
+
+        if model is None:
+            return None
+
+        model.quantity = position.quantity
+        model.average_cost = (
+            position.average_cost
+        )
+        model.updated_at = position.updated_at
+
+        self._touch_portfolio(
+            portfolio_id=portfolio_id,
+            timestamp=position.updated_at,
+        )
+
+        self._session.flush()
+
+        return self._to_domain_position(
+            model
+        )
+
+    def delete_position(
+        self,
+        *,
+        portfolio_id: UUID,
+        position_id: UUID,
+        removed_at: datetime | None = None,
+    ) -> Position | None:
+        statement = (
+            select(PositionModel)
+            .where(
+                PositionModel.portfolio_id
+                == portfolio_id,
+                PositionModel.id
+                == position_id,
+            )
+        )
+
+        model = (
+            self._session
+            .execute(statement)
+            .scalar_one_or_none()
+        )
+
+        if model is None:
+            return None
+
+        position = self._to_domain_position(
+            model
+        )
+
+        timestamp = (
+            removed_at
+            or datetime.now(UTC)
+        )
+
+        self._session.delete(
+            model
+        )
+
+        self._touch_portfolio(
+            portfolio_id=portfolio_id,
+            timestamp=timestamp,
+        )
+
+        self._session.flush()
+
+        return position
+
     def list_positions(
         self,
         *,
@@ -217,9 +348,26 @@ class PortfolioRepository:
             for model in models
         ]
 
-    # ==========================================================
-    # Mapping
-    # ==========================================================
+    def _touch_portfolio(
+        self,
+        *,
+        portfolio_id: UUID,
+        timestamp: datetime,
+    ) -> None:
+        model = (
+            self._session
+            .execute(
+                select(PortfolioModel)
+                .where(
+                    PortfolioModel.id
+                    == portfolio_id
+                )
+            )
+            .scalar_one_or_none()
+        )
+
+        if model is not None:
+            model.updated_at = timestamp
 
     @staticmethod
     def _to_domain_position(

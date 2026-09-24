@@ -3,9 +3,6 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
-from services.trading.cached_quote_provider import (
-    CachedMarketQuoteProvider,
-)
 
 from libs.domain.market import (
     Market,
@@ -14,6 +11,9 @@ from libs.domain.market import (
     MarketQuote as DomainMarketQuote,
 )
 from libs.trading.market import MarketQuote
+from services.trading.cached_quote_provider import (
+    CachedMarketQuoteProvider,
+)
 
 
 def build_domain_quote(

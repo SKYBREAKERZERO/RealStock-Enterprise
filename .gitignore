@@ -144,4 +144,5 @@ temp/
 *.swp
 *.swo
 
-~$*
+~$*.venv_broken/
+.venv_broken/
