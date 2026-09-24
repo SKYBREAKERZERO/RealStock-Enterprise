@@ -549,8 +549,13 @@ module "api_iam" {
     local.api_runtime_name
   )
 
-  execution_secretsmanager_secret_arns = (
-    local.api_secretsmanager_secret_arns
+  execution_secretsmanager_secret_arns = distinct(
+    concat(
+      local.api_secretsmanager_secret_arns,
+      [
+        module.database.master_user_secret_arn,
+      ],
+    )
   )
 
   execution_ssm_parameter_arns = (
@@ -732,6 +737,18 @@ module "api_ecs" {
       APP_NAME   = local.api_runtime_name
       AWS_REGION = var.aws_region
 
+      DATABASE_HOST = (
+        module.database_proxy.endpoint
+      )
+
+      DATABASE_PORT = "5432"
+
+      DATABASE_NAME = (
+        var.database_name
+      )
+
+      DATABASE_SSLMODE = "require"
+
       REDIS_URL = (
         "rediss://${module.redis.primary_endpoint_address}:${module.redis.port}"
       )
@@ -739,12 +756,25 @@ module "api_ecs" {
     var.api_environment_variables,
   )
 
-  # DATABASE_URL remains an external secret reference.
+  # Aurora credentials are injected directly from the
+  # AWS-managed master-user Secrets Manager secret.
+  #
+  # The application connects through RDS Proxy using the
+  # structured DATABASE_* settings above.
   #
   # REDIS_URL is generated directly from the Terraform-managed
   # ElastiCache endpoint and is non-secret runtime configuration.
-  secrets = (
-    var.api_secrets
+  secrets = merge(
+    var.api_secrets,
+    {
+      DATABASE_USERNAME = (
+        "${module.database.master_user_secret_arn}:username::"
+      )
+
+      DATABASE_PASSWORD = (
+        "${module.database.master_user_secret_arn}:password::"
+      )
+    },
   )
 
   tags = merge(

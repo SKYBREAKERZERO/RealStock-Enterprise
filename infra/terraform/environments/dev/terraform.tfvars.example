@@ -67,29 +67,66 @@ enable_ecs_exec = false
 
 # Additional non-secret environment variables.
 #
-# REDIS_URL must NOT be supplied here.
+# Database connection settings and REDIS_URL are managed by
+# Terraform and must NOT be supplied here.
 #
-# Terraform generates REDIS_URL automatically from the private
-# ElastiCache primary endpoint using the rediss:// TLS scheme.
+# Terraform automatically injects:
+#
+# DATABASE_HOST
+#   -> RDS Proxy endpoint
+#
+# DATABASE_PORT
+#   -> 5432
+#
+# DATABASE_NAME
+#   -> database_name
+#
+# DATABASE_SSLMODE
+#   -> require
+#
+# REDIS_URL
+#   -> private ElastiCache primary endpoint using rediss:// TLS
+#
+# Use this map only for additional non-secret application
+# configuration.
 api_environment_variables = {}
 
 
-# DATABASE_URL remains an application secret.
+# Additional application secrets only.
 #
-# Store its actual value in AWS Secrets Manager or SSM Parameter
-# Store and provide only the secret ARN here.
+# Database credentials are managed automatically by Terraform.
 #
-# REDIS_URL must NOT be placed in this map.
+# ECS receives:
+#
+# DATABASE_USERNAME
+#   -> username field from the AWS-managed Aurora master-user
+#      Secrets Manager secret
+#
+# DATABASE_PASSWORD
+#   -> password field from the AWS-managed Aurora master-user
+#      Secrets Manager secret
+#
+# Do NOT configure any of the following manually:
+#
+# DATABASE_URL
+# DATABASE_USERNAME
+# DATABASE_PASSWORD
+# REDIS_URL
 #
 # Example:
 #
 # api_secrets = {
-#   DATABASE_URL = "<secrets-manager-or-ssm-arn>"
+#   SOME_EXTERNAL_API_KEY = "<secrets-manager-or-ssm-arn>"
 # }
+api_secrets = {}
 
 
-# Optional customer-managed KMS keys required to decrypt the
-# application secrets above.
+# Optional customer-managed KMS keys required to decrypt
+# additional application secrets supplied through api_secrets.
+#
+# Aurora master-user credentials use the AWS-managed secret
+# produced by the Aurora module and do not need to be duplicated
+# here.
 api_kms_key_arns = []
 
 

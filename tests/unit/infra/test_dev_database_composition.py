@@ -113,15 +113,124 @@ def test_proxy_uses_aws_managed_database_secret() -> None:
     )
 
 
-def test_dev_does_not_put_database_password_in_source() -> None:
-    content = (
-        _read(MAIN_TF)
-        + _read(VARIABLES_TF)
+def test_dev_does_not_put_plaintext_database_password_in_source() -> None:
+    main_content = _read(MAIN_TF)
+    variables_content = _read(VARIABLES_TF)
+
+    combined_content = (
+        main_content
+        + variables_content
     ).lower()
 
-    assert "master_password" not in content
-    assert "database_password" not in content
-    assert "db_password" not in content
+    # Terraform must never define a plaintext Aurora master password.
+    assert "master_password" not in combined_content
+
+    # No Terraform input variable may accept a database password.
+    assert 'variable "database_password"' not in variables_content
+    assert 'variable "db_password"' not in variables_content
+
+    # The ECS environment-variable name is allowed, but its value must
+    # come from the AWS-managed Aurora Secrets Manager secret.
+    assert "DATABASE_PASSWORD" in main_content
+    assert (
+        '"${module.database.master_user_secret_arn}:password::"'
+        in main_content
+    )
+
+
+def test_dev_api_uses_rds_proxy_endpoint() -> None:
+    content = _read(MAIN_TF)
+
+    assert "DATABASE_HOST" in content
+    assert "module.database_proxy.endpoint" in content
+    assert 'DATABASE_PORT = "5432"' in content
+    assert "DATABASE_NAME" in content
+    assert "var.database_name" in content
+    assert 'DATABASE_SSLMODE = "require"' in content
+
+
+def test_dev_api_injects_aurora_credentials_from_secrets_manager() -> None:
+    content = _read(MAIN_TF)
+
+    assert "DATABASE_USERNAME" in content
+    assert "DATABASE_PASSWORD" in content
+
+    assert (
+        '"${module.database.master_user_secret_arn}:username::"'
+        in content
+    )
+
+    assert (
+        '"${module.database.master_user_secret_arn}:password::"'
+        in content
+    )
+
+
+def test_dev_execution_role_can_read_aurora_secret() -> None:
+    content = _read(MAIN_TF)
+
+    iam_block = content.split(
+        'module "api_iam"',
+        maxsplit=1,
+    )[1].split(
+        'module "api_alb"',
+        maxsplit=1,
+    )[0]
+
+    assert "execution_secretsmanager_secret_arns" in iam_block
+    assert "local.api_secretsmanager_secret_arns" in iam_block
+    assert "module.database.master_user_secret_arn" in iam_block
+
+
+def test_dev_does_not_require_database_url_secret() -> None:
+    content = _read(VARIABLES_TF)
+
+    api_secrets_block = content.split(
+        'variable "api_secrets"',
+        maxsplit=1,
+    )[1].split(
+        'variable "api_kms_key_arns"',
+        maxsplit=1,
+    )[0]
+
+    assert "api_secrets must contain DATABASE_URL" not in api_secrets_block
+    assert "default   = {}" in api_secrets_block
+
+
+def test_dev_prevents_database_secret_overrides() -> None:
+    content = _read(VARIABLES_TF)
+
+    api_secrets_block = content.split(
+        'variable "api_secrets"',
+        maxsplit=1,
+    )[1].split(
+        'variable "api_kms_key_arns"',
+        maxsplit=1,
+    )[0]
+
+    assert '"DATABASE_URL"' in api_secrets_block
+    assert '"DATABASE_USERNAME"' in api_secrets_block
+    assert '"DATABASE_PASSWORD"' in api_secrets_block
+    assert '"REDIS_URL"' in api_secrets_block
+
+
+def test_dev_prevents_database_environment_overrides() -> None:
+    content = _read(VARIABLES_TF)
+
+    environment_block = content.split(
+        'variable "api_environment_variables"',
+        maxsplit=1,
+    )[1].split(
+        'variable "api_secrets"',
+        maxsplit=1,
+    )[0]
+
+    assert '"DATABASE_HOST"' in environment_block
+    assert '"DATABASE_PORT"' in environment_block
+    assert '"DATABASE_NAME"' in environment_block
+    assert '"DATABASE_SSLMODE"' in environment_block
+    assert '"DATABASE_URL"' in environment_block
+    assert '"REDIS_URL"' in environment_block
 
 
 def test_dev_database_preserves_ha_baseline() -> None:
@@ -194,5 +303,5 @@ def test_dev_database_has_no_public_cidr_wiring() -> None:
         maxsplit=1,
     )[1]
 
-    assert '0.0.0.0/0' not in database_section
-    assert '::/0' not in database_section
+    assert "0.0.0.0/0" not in database_section
+    assert "::/0" not in database_section
