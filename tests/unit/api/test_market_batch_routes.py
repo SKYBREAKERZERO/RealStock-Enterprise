@@ -164,6 +164,7 @@ def client(
         market_routes,
         "get_settings",
         lambda: SimpleNamespace(
+            market_data_provider="twelve_data",
             market_batch_max_symbols=8,
         ),
     )
@@ -188,10 +189,8 @@ def test_batch_route_returns_multiple_quotes(
     )
 
     response = test_client.get(
-        
-            "/api/v1/market/quotes"
-            "?symbols=AAPL,MSFT,NVDA"
-        
+        "/api/v1/market/quotes"
+        "?symbols=AAPL,MSFT,NVDA"
     )
 
     assert (
@@ -251,10 +250,8 @@ def test_batch_route_normalizes_and_deduplicates(
     )
 
     response = test_client.get(
-        
-            "/api/v1/market/quotes"
-            "?symbols=aapl,AAPL,msft"
-        
+        "/api/v1/market/quotes"
+        "?symbols=aapl,AAPL,msft"
     )
 
     assert (
@@ -278,10 +275,8 @@ def test_batch_route_rejects_invalid_symbol(
     )
 
     response = test_client.get(
-        
-            "/api/v1/market/quotes"
-            "?symbols=AAPL,%40BAD"
-        
+        "/api/v1/market/quotes"
+        "?symbols=AAPL,%40BAD"
     )
 
     assert (
@@ -298,11 +293,9 @@ def test_batch_route_rejects_too_many_symbols(
     )
 
     response = test_client.get(
-        
-            "/api/v1/market/quotes"
-            "?symbols="
-            "A,B,C,D,E,F,G,H,I"
-        
+        "/api/v1/market/quotes"
+        "?symbols="
+        "A,B,C,D,E,F,G,H,I"
     )
 
     assert (
@@ -329,10 +322,8 @@ def test_batch_route_supports_partial_success(
     )
 
     response = test_client.get(
-        
-            "/api/v1/market/quotes"
-            "?symbols=AAPL,INVALID"
-        
+        "/api/v1/market/quotes"
+        "?symbols=AAPL,INVALID"
     )
 
     assert (

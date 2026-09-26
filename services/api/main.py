@@ -89,7 +89,8 @@ ROUTERS = (
     trading_simulation_router,
 )
 
+
 for api_router in ROUTERS:
-    app.router.routes.extend(
-        api_router.routes
+    app.include_router(
+        api_router
     )
