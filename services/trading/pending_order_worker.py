@@ -4,11 +4,9 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Callable
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
 
 from libs.cache import MarketQuoteCache
 from libs.database.models import PaperOrderModel
@@ -29,7 +27,6 @@ from services.trading.persistent_paper_trading_service import (
     PersistentPaperTradingService,
 )
 from services.trading.quote_service import QuoteService
-
 
 logger = logging.getLogger(__name__)
 

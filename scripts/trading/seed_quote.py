@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from libs.cache import MarketQuoteCache
@@ -98,7 +98,7 @@ def main() -> int:
         bid_size=args.bid_size,
         ask_size=args.ask_size,
         timestamp=datetime.now(
-            timezone.utc
+            UTC
         ),
     )
 

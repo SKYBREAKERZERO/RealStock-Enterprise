@@ -18,6 +18,7 @@ from libs.trading.exceptions import (
 )
 from services.api.dependencies import (
     get_current_user_id,
+    get_trading_account_service,
     get_trading_portfolio_service,
     get_trading_query_service,
     get_trading_write_service,
@@ -30,10 +31,15 @@ from services.api.schemas.trading import (
     TradingPortfolioResponse,
 )
 from services.api.schemas.trading_write import (
+    CreatePaperAccountRequest,
     LimitOrderProcessResponse,
     LimitOrderRequest,
     MarketOrderRequest,
     TradeExecutionResponse,
+)
+from services.trading.trading_account_service import (
+    TradingAccountAlreadyExistsError,
+    TradingAccountService,
 )
 from services.trading.trading_portfolio_service import (
     TradingPortfolioAccountNotFoundError,
@@ -47,14 +53,6 @@ from services.trading.trading_write_service import (
     TradingWriteAccountNotFoundError,
     TradingWriteOrderNotFoundError,
     TradingWriteService,
-)
-
-
-from services.api.dependencies import get_trading_account_service
-from services.api.schemas.trading_write import CreatePaperAccountRequest
-from services.trading.trading_account_service import (
-    TradingAccountAlreadyExistsError,
-    TradingAccountService,
 )
 
 router = APIRouter(

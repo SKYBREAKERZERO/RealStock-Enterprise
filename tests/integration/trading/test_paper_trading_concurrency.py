@@ -36,7 +36,6 @@ from services.trading.quote_service import (
     StaticQuoteProvider,
 )
 
-
 pytestmark = pytest.mark.integration
 
 
