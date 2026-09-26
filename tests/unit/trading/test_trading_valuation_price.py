@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from libs.domain.market import Market
-from libs.trading.market import MarketQuote
+from libs.domain.market import (
+    Market,
+    MarketQuote,
+)
 from services.trading.trading_valuation_price import (
     BatchTradingValuationPriceSource,
     CachedTradingValuationPriceSource,
@@ -18,8 +21,12 @@ def test_cached_source_uses_bid_ask_midpoint() -> None:
     quote_cache.get_quote.return_value = (
         MarketQuote(
             symbol="AAPL",
-            bid=Decimal("209"),
-            ask=Decimal("211"),
+            market=Market.US,
+            bid_price=Decimal("209"),
+            ask_price=Decimal("211"),
+            bid_size=100,
+            ask_size=100,
+            timestamp=datetime.now(UTC),
         )
     )
 
@@ -60,6 +67,60 @@ def test_cached_source_skips_missing_quote() -> None:
         )
         == {}
     )
+
+
+def test_cached_source_normalizes_symbols() -> None:
+    quote_cache = Mock()
+
+    quote_cache.get_quote.return_value = (
+        MarketQuote(
+            symbol="AAPL",
+            market=Market.US,
+            bid_price=Decimal("199.50"),
+            ask_price=Decimal("200.00"),
+            bid_size=100,
+            ask_size=100,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    source = CachedTradingValuationPriceSource(
+        quote_cache=quote_cache,
+    )
+
+    prices = source.get_prices(
+        [
+            "  aapl  ",
+        ]
+    )
+
+    assert prices == {
+        "AAPL": Decimal("199.75"),
+    }
+
+    quote_cache.get_quote.assert_called_once_with(
+        market=Market.US,
+        symbol="AAPL",
+    )
+
+
+def test_cached_source_skips_blank_symbol() -> None:
+    quote_cache = Mock()
+
+    source = CachedTradingValuationPriceSource(
+        quote_cache=quote_cache,
+    )
+
+    prices = source.get_prices(
+        [
+            "",
+            "   ",
+        ]
+    )
+
+    assert prices == {}
+
+    quote_cache.get_quote.assert_not_called()
 
 
 def test_batch_source_converts_close_valuation_price() -> None:

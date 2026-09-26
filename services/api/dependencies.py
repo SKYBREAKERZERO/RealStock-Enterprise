@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-
 from collections.abc import Generator
 from typing import Annotated
 
@@ -41,6 +40,9 @@ from services.api.portfolio.valuation_price import (
 from services.market_ingestor.providers.twelve_data import (
     TwelveDataMarketDataProvider,
 )
+from services.trading.alpaca_quote_provider import (
+    AlpacaCachedTradingQuoteProvider,
+)
 from services.trading.cached_quote_provider import (
     CachedMarketQuoteProvider,
 )
@@ -51,6 +53,9 @@ from services.trading.persistent_paper_trading_service import (
     PersistentPaperTradingService,
 )
 from services.trading.quote_service import QuoteService
+from services.trading.trading_account_service import (
+    TradingAccountService,
+)
 from services.trading.trading_portfolio_service import (
     TradingPortfolioService,
 )
@@ -65,30 +70,6 @@ from services.trading.trading_write_service import (
     TradingWriteService,
 )
 
-
-from libs.cache import MarketQuoteCache
-from libs.trading.paper_broker import PaperBroker
-from services.trading.cached_quote_provider import (
-    CachedMarketQuoteProvider,
-)
-from services.trading.paper_trading_service import (
-    PaperTradingService,
-)
-from services.trading.persistent_paper_trading_service import (
-    PersistentPaperTradingService,
-)
-from services.trading.quote_service import QuoteService
-from services.trading.trading_write_service import TradingWriteService
-
-
-from services.trading.trading_account_service import (
-    TradingAccountService,
-)
-
-
-from services.trading.alpaca_quote_provider import (
-    AlpacaCachedTradingQuoteProvider,
-)
 
 def get_current_user_id(
     x_user_id: Annotated[
@@ -109,24 +90,19 @@ def get_current_user_id(
     if x_user_id is None:
         raise HTTPException(
             status_code=(
-                status
-                .HTTP_401_UNAUTHORIZED
+                status.HTTP_401_UNAUTHORIZED
             ),
             detail=(
                 "missing X-User-Id header"
             ),
         )
 
-    user_id = (
-        x_user_id
-        .strip()
-    )
+    user_id = x_user_id.strip()
 
     if not user_id:
         raise HTTPException(
             status_code=(
-                status
-                .HTTP_401_UNAUTHORIZED
+                status.HTTP_401_UNAUTHORIZED
             ),
             detail=(
                 "invalid X-User-Id header"
@@ -136,8 +112,7 @@ def get_current_user_id(
     if len(user_id) > 128:
         raise HTTPException(
             status_code=(
-                status
-                .HTTP_401_UNAUTHORIZED
+                status.HTTP_401_UNAUTHORIZED
             ),
             detail=(
                 "invalid X-User-Id header"
@@ -190,7 +165,7 @@ def get_persistent_paper_trading_service(
     """
     Build the canonical paper-trading write runtime.
 
-    Trade execution always consumes a real bid/ask MarketQuote from
+    Trade execution consumes a real bid/ask MarketQuote from
     MarketQuoteCache through CachedMarketQuoteProvider.
 
     BUY executes at ask and SELL executes at bid in PaperBroker.
@@ -230,6 +205,25 @@ def get_trading_write_service(
         Depends(get_db_session),
     ],
 ) -> TradingWriteService:
+    """
+    Build the paper-trading write runtime.
+
+    Local / Redis-only mode:
+        MarketQuoteCache
+        -> CachedMarketQuoteProvider
+        -> bid / ask execution
+
+    Alpaca mode:
+        MarketQuoteCache
+        -> AlpacaCachedTradingQuoteProvider
+        -> cached quote when available
+        -> Alpaca latest quote on cache miss
+        -> bid / ask execution
+
+    The trading execution boundary always works with real
+    bid / ask semantics.
+    """
+
     quote_cache = MarketQuoteCache()
 
     alpaca_key_id = os.getenv(
@@ -242,28 +236,40 @@ def get_trading_write_service(
         "",
     ).strip()
 
-    if alpaca_key_id and alpaca_secret_key:
+    if (
+        alpaca_key_id
+        and alpaca_secret_key
+    ):
         quote_provider = (
             AlpacaCachedTradingQuoteProvider(
                 cache=quote_cache,
                 api_key_id=alpaca_key_id,
-                api_secret_key=alpaca_secret_key,
+                api_secret_key=(
+                    alpaca_secret_key
+                ),
                 feed=os.getenv(
                     "ALPACA_DATA_FEED",
                     "iex",
                 ),
                 base_url=os.getenv(
                     "ALPACA_MARKET_DATA_BASE_URL",
-                    "https://data.alpaca.markets",
+                    (
+                        "https://"
+                        "data.alpaca.markets"
+                    ),
                 ),
                 timeout_seconds=float(
                     os.getenv(
-                        "ALPACA_QUOTE_TIMEOUT_SECONDS",
+                        (
+                            "ALPACA_QUOTE_"
+                            "TIMEOUT_SECONDS"
+                        ),
                         "5",
                     )
                 ),
             )
         )
+
     else:
         quote_provider = (
             CachedMarketQuoteProvider(
@@ -271,29 +277,38 @@ def get_trading_write_service(
             )
         )
 
-    trading_service = PaperTradingService(
-        quote_service=QuoteService(
-            provider=quote_provider,
-        ),
-        broker=PaperBroker(),
+    trading_service = (
+        PaperTradingService(
+            quote_service=QuoteService(
+                provider=quote_provider,
+            ),
+            broker=PaperBroker(),
+        )
     )
 
     return TradingWriteService(
-        query_service=TradingQueryService(
-            unit_of_work=SqlAlchemyUnitOfWork(
-                session
-            ),
+        query_service=(
+            TradingQueryService(
+                unit_of_work=(
+                    SqlAlchemyUnitOfWork(
+                        session
+                    )
+                ),
+            )
         ),
         persistent_service=(
             PersistentPaperTradingService(
-                trading_service=trading_service,
-                unit_of_work=SqlAlchemyUnitOfWork(
-                    session
+                trading_service=(
+                    trading_service
+                ),
+                unit_of_work=(
+                    SqlAlchemyUnitOfWork(
+                        session
+                    )
                 ),
             )
         ),
     )
-
 
 
 def get_trading_portfolio_service(
@@ -309,18 +324,28 @@ def get_trading_portfolio_service(
     """
     Build the paper-trading valuation runtime.
 
-    Legacy/local mode:
+    Local mode:
+        MarketQuoteCache
+        -> real/simulated bid/ask quote
+        -> midpoint valuation price
+
+    Local paper trading must use the same bid/ask quote
+    source that drives trade execution so simulated
+    quotes and portfolio valuation remain consistent.
+
+    Non-local mock mode:
         MarketQuoteCache
         -> real bid/ask quote
         -> midpoint valuation price
 
-    Twelve Data mode:
+    Non-local Twelve Data mode:
         Twelve Data OHLC snapshot
         -> Redis fresh/stale cache
         -> BatchMarketValuationPriceSource
         -> snapshot.close valuation price
 
-    Neither path fabricates bid/ask semantics from OHLC close.
+    OHLC close is never converted into synthetic
+    bid/ask data.
     """
 
     unit_of_work = (
@@ -332,7 +357,8 @@ def get_trading_portfolio_service(
     settings = get_settings()
 
     if (
-        settings.market_data_provider
+        settings.is_local
+        or settings.market_data_provider
         != "twelve_data"
     ):
         yield TradingPortfolioService(
@@ -407,9 +433,13 @@ def get_trading_portfolio_service(
         )
     )
 
-    service = TradingPortfolioService(
-        unit_of_work=unit_of_work,
-        price_source=trading_price_source,
+    service = (
+        TradingPortfolioService(
+            unit_of_work=unit_of_work,
+            price_source=(
+                trading_price_source
+            ),
+        )
     )
 
     try:
@@ -429,19 +459,22 @@ def get_portfolio_valuation_service(
     Build the portfolio valuation runtime.
 
     mock mode:
-        Preserve the legacy bid/ask MarketQuoteCache valuation
-        path. This also keeps deterministic unit/integration
+        Preserve the legacy bid/ask MarketQuoteCache
+        valuation path.
+
+        This keeps deterministic unit/integration
         tests compatible.
 
     twelve_data mode:
         Twelve Data OHLC snapshot
-            -> Redis fresh/stale cache
-            -> BatchMarketQuoteService
-            -> explicit valuation price
-            -> snapshot.close
+        -> Redis fresh/stale cache
+        -> BatchMarketQuoteService
+        -> explicit valuation price
+        -> snapshot.close
 
-    Twelve Data close is used explicitly as the valuation
-    price. It is never converted into synthetic bid/ask data.
+    Twelve Data close is used explicitly as the
+    valuation price. It is never converted into
+    synthetic bid/ask data.
     """
 
     settings = get_settings()
@@ -450,9 +483,7 @@ def get_portfolio_valuation_service(
         settings.market_data_provider
         != "twelve_data"
     ):
-        yield (
-            PortfolioValuationService()
-        )
+        yield PortfolioValuationService()
 
         return
 
@@ -509,9 +540,7 @@ def get_portfolio_valuation_service(
 
     valuation_service = (
         PortfolioValuationService(
-            price_source=(
-                price_source
-            ),
+            price_source=price_source,
         )
     )
 
@@ -529,7 +558,9 @@ def get_trading_account_service(
     ],
 ) -> TradingAccountService:
     return TradingAccountService(
-        unit_of_work=SqlAlchemyUnitOfWork(
-            session
+        unit_of_work=(
+            SqlAlchemyUnitOfWork(
+                session
+            )
         ),
     )

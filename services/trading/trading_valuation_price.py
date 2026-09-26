@@ -5,22 +5,35 @@ from decimal import Decimal
 
 from libs.cache import MarketQuoteCache
 from libs.domain.market import Market
-from services.api.portfolio.valuation import ValuationInstrument
+from services.api.portfolio.valuation import (
+    ValuationInstrument,
+)
 from services.api.portfolio.valuation_price import (
     BatchMarketValuationPriceSource,
 )
 
-TWO = Decimal("2")
 ZERO = Decimal("0")
 
 
 @dataclass(slots=True)
 class CachedTradingValuationPriceSource:
     """
-    Legacy/local paper-trading valuation adapter.
+    Paper-trading valuation adapter backed by MarketQuoteCache.
 
-    The cache already stores a real bid/ask MarketQuote.
-    The valuation policy for this path is the bid/ask midpoint.
+    MarketQuoteCache stores the canonical market-domain
+    bid/ask quote.
+
+    Portfolio valuation uses the quote midpoint:
+
+        midpoint = (bid_price + ask_price) / 2
+
+    Execution semantics remain separate:
+
+        BUY  -> ask_price
+        SELL -> bid_price
+
+    The valuation adapter must consume the same market-domain
+    quote contract returned by MarketQuoteCache.
     """
 
     quote_cache: MarketQuoteCache
@@ -46,9 +59,7 @@ class CachedTradingValuationPriceSource:
             if quote is None:
                 continue
 
-            mark_price = (
-                quote.bid + quote.ask
-            ) / TWO
+            mark_price = quote.mid_price
 
             if mark_price <= ZERO:
                 continue
@@ -61,15 +72,16 @@ class CachedTradingValuationPriceSource:
 @dataclass(slots=True)
 class BatchTradingValuationPriceSource:
     """
-    Adapter from the existing portfolio OHLC valuation source to the
-    symbol-only paper-trading valuation boundary.
+    Adapter from the existing portfolio OHLC valuation source
+    to the symbol-only paper-trading valuation boundary.
 
-    Paper trading currently stores symbols without a market column,
-    so the current US-market assumption is explicit here.
+    Paper trading currently stores symbols without a market
+    column, so the current US-market assumption is explicit.
 
-    Twelve Data snapshot close remains the valuation price through
-    BatchMarketValuationPriceSource. It is never converted into
-    synthetic bid/ask data.
+    Twelve Data snapshot close remains the valuation price
+    through BatchMarketValuationPriceSource.
+
+    OHLC close is never converted into synthetic bid/ask data.
     """
 
     price_source: BatchMarketValuationPriceSource
