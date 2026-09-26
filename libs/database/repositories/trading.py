@@ -23,6 +23,27 @@ from libs.trading.models import (
     Position,
 )
 
+_DEFAULT_READ_LIMIT = 100
+_MAX_READ_LIMIT = 500
+
+_OPEN_ORDER_STATUSES = (
+    OrderStatus.NEW,
+    OrderStatus.PENDING,
+    OrderStatus.PARTIALLY_FILLED,
+)
+
+
+def _validate_read_limit(
+    limit: int,
+) -> int:
+    if not 1 <= limit <= _MAX_READ_LIMIT:
+        raise ValueError(
+            "Read limit must be between "
+            f"1 and {_MAX_READ_LIMIT}."
+        )
+
+    return limit
+
 
 class PaperAccountRepository:
     def __init__(
@@ -60,10 +81,43 @@ class PaperAccountRepository:
         if model is None:
             return None
 
-        return PaperAccount(
-            account_id=model.id,
-            initial_cash=model.initial_cash,
-            cash_balance=model.cash_balance,
+        return self._to_domain(
+            model
+        )
+
+    def get_by_user_id(
+        self,
+        user_id: str,
+    ) -> PaperAccount | None:
+        normalized_user_id = (
+            user_id
+            .strip()
+        )
+
+        if not normalized_user_id:
+            raise ValueError(
+                "User ID must not be empty."
+            )
+
+        statement = (
+            select(
+                PaperAccountModel
+            )
+            .where(
+                PaperAccountModel.user_id
+                == normalized_user_id,
+            )
+        )
+
+        model = self._session.scalar(
+            statement
+        )
+
+        if model is None:
+            return None
+
+        return self._to_domain(
+            model
         )
 
     def get_for_update(
@@ -95,10 +149,8 @@ class PaperAccountRepository:
         if model is None:
             return None
 
-        return PaperAccount(
-            account_id=model.id,
-            initial_cash=model.initial_cash,
-            cash_balance=model.cash_balance,
+        return self._to_domain(
+            model
         )
 
     def update(
@@ -116,6 +168,16 @@ class PaperAccountRepository:
             )
 
         model.cash_balance = account.cash_balance
+
+    @staticmethod
+    def _to_domain(
+        model: PaperAccountModel,
+    ) -> PaperAccount:
+        return PaperAccount(
+            account_id=model.id,
+            initial_cash=model.initial_cash,
+            cash_balance=model.cash_balance,
+        )
 
 
 class PaperPositionRepository:
@@ -156,11 +218,8 @@ class PaperPositionRepository:
         if model is None:
             return None
 
-        return Position(
-            symbol=model.symbol,
-            quantity=model.quantity,
-            average_cost=model.average_cost,
-            realized_pnl=model.realized_pnl,
+        return self._to_domain(
+            model
         )
 
     def get_for_update(
@@ -202,12 +261,37 @@ class PaperPositionRepository:
         if model is None:
             return None
 
-        return Position(
-            symbol=model.symbol,
-            quantity=model.quantity,
-            average_cost=model.average_cost,
-            realized_pnl=model.realized_pnl,
+        return self._to_domain(
+            model
         )
+
+    def list_by_account(
+        self,
+        account_id: UUID,
+    ) -> list[Position]:
+        statement = (
+            select(
+                PaperPositionModel
+            )
+            .where(
+                PaperPositionModel.account_id
+                == account_id,
+            )
+            .order_by(
+                PaperPositionModel.symbol.asc(),
+            )
+        )
+
+        models = self._session.scalars(
+            statement
+        ).all()
+
+        return [
+            self._to_domain(
+                model
+            )
+            for model in models
+        ]
 
     def upsert(
         self,
@@ -255,6 +339,17 @@ class PaperPositionRepository:
         model.quantity = position.quantity
         model.average_cost = position.average_cost
         model.realized_pnl = position.realized_pnl
+
+    @staticmethod
+    def _to_domain(
+        model: PaperPositionModel,
+    ) -> Position:
+        return Position(
+            symbol=model.symbol,
+            quantity=model.quantity,
+            average_cost=model.average_cost,
+            realized_pnl=model.realized_pnl,
+        )
 
 
 class PaperOrderRepository:
@@ -305,22 +400,8 @@ class PaperOrderRepository:
         if model is None:
             return None
 
-        return PaperOrder(
-            order_id=model.id,
-            account_id=model.account_id,
-            symbol=model.symbol,
-            side=OrderSide(
-                model.side
-            ),
-            quantity=model.quantity,
-            order_type=OrderType(
-                model.order_type
-            ),
-            status=OrderStatus(
-                model.status
-            ),
-            filled_quantity=model.filled_quantity,
-            limit_price=model.limit_price,
+        return self._to_domain(
+            model
         )
 
     def get_for_update(
@@ -355,23 +436,93 @@ class PaperOrderRepository:
         if model is None:
             return None
 
-        return PaperOrder(
-            order_id=model.id,
-            account_id=model.account_id,
-            symbol=model.symbol,
-            side=OrderSide(
-                model.side
-            ),
-            quantity=model.quantity,
-            order_type=OrderType(
-                model.order_type
-            ),
-            status=OrderStatus(
-                model.status
-            ),
-            filled_quantity=model.filled_quantity,
-            limit_price=model.limit_price,
+        return self._to_domain(
+            model
         )
+
+    def list_by_account(
+        self,
+        account_id: UUID,
+        *,
+        limit: int = _DEFAULT_READ_LIMIT,
+    ) -> list[PaperOrder]:
+        validated_limit = _validate_read_limit(
+            limit
+        )
+
+        statement = (
+            select(
+                PaperOrderModel
+            )
+            .where(
+                PaperOrderModel.account_id
+                == account_id,
+            )
+            .order_by(
+                PaperOrderModel.created_at.desc(),
+                PaperOrderModel.id.desc(),
+            )
+            .limit(
+                validated_limit
+            )
+        )
+
+        models = self._session.scalars(
+            statement
+        ).all()
+
+        return [
+            self._to_domain(
+                model
+            )
+            for model in models
+        ]
+
+    def list_open_by_account(
+        self,
+        account_id: UUID,
+        *,
+        limit: int = _DEFAULT_READ_LIMIT,
+    ) -> list[PaperOrder]:
+        validated_limit = _validate_read_limit(
+            limit
+        )
+
+        open_status_values = [
+            status.value
+            for status in _OPEN_ORDER_STATUSES
+        ]
+
+        statement = (
+            select(
+                PaperOrderModel
+            )
+            .where(
+                PaperOrderModel.account_id
+                == account_id,
+                PaperOrderModel.status.in_(
+                    open_status_values
+                ),
+            )
+            .order_by(
+                PaperOrderModel.created_at.desc(),
+                PaperOrderModel.id.desc(),
+            )
+            .limit(
+                validated_limit
+            )
+        )
+
+        models = self._session.scalars(
+            statement
+        ).all()
+
+        return [
+            self._to_domain(
+                model
+            )
+            for model in models
+        ]
 
     def update(
         self,
@@ -390,6 +541,28 @@ class PaperOrderRepository:
         model.status = order.status.value
         model.filled_quantity = order.filled_quantity
         model.limit_price = order.limit_price
+
+    @staticmethod
+    def _to_domain(
+        model: PaperOrderModel,
+    ) -> PaperOrder:
+        return PaperOrder(
+            order_id=model.id,
+            account_id=model.account_id,
+            symbol=model.symbol,
+            side=OrderSide(
+                model.side
+            ),
+            quantity=model.quantity,
+            order_type=OrderType(
+                model.order_type
+            ),
+            status=OrderStatus(
+                model.status
+            ),
+            filled_quantity=model.filled_quantity,
+            limit_price=model.limit_price,
+        )
 
 
 class PaperExecutionRepository:
@@ -417,4 +590,57 @@ class PaperExecutionRepository:
 
         self._session.add(
             model
+        )
+
+    def list_by_account(
+        self,
+        account_id: UUID,
+        *,
+        limit: int = _DEFAULT_READ_LIMIT,
+    ) -> list[Execution]:
+        validated_limit = _validate_read_limit(
+            limit
+        )
+
+        statement = (
+            select(
+                PaperExecutionModel
+            )
+            .where(
+                PaperExecutionModel.account_id
+                == account_id,
+            )
+            .order_by(
+                PaperExecutionModel.executed_at.desc(),
+                PaperExecutionModel.id.desc(),
+            )
+            .limit(
+                validated_limit
+            )
+        )
+
+        models = self._session.scalars(
+            statement
+        ).all()
+
+        return [
+            self._to_domain(
+                model
+            )
+            for model in models
+        ]
+
+    @staticmethod
+    def _to_domain(
+        model: PaperExecutionModel,
+    ) -> Execution:
+        return Execution(
+            execution_id=model.id,
+            order_id=model.order_id,
+            symbol=model.symbol,
+            side=OrderSide(
+                model.side
+            ),
+            quantity=model.quantity,
+            price=model.price,
         )

@@ -20,6 +20,9 @@ from services.api.routes.outbox import (
 from services.api.routes.portfolio import (
     router as portfolio_router,
 )
+from services.api.routes.trading import (
+    router as trading_router,
+)
 from services.api.routes.watchlist import (
     router as watchlist_router,
 )
@@ -53,9 +56,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=(
-        get_cors_allowed_origins()
-    ),
+    allow_origins=get_cors_allowed_origins(),
     allow_credentials=False,
     allow_methods=[
         "GET",
@@ -74,26 +75,17 @@ app.add_middleware(
 )
 
 
-app.include_router(
-    health_router
+ROUTERS = (
+    health_router,
+    portfolio_router,
+    market_router,
+    watchlist_router,
+    outbox_router,
+    news_router,
+    trading_router,
 )
 
-app.include_router(
-    portfolio_router
-)
-
-app.include_router(
-    market_router
-)
-
-app.include_router(
-    watchlist_router
-)
-
-app.include_router(
-    outbox_router
-)
-
-app.include_router(
-    news_router
-)
+for api_router in ROUTERS:
+    app.router.routes.extend(
+        api_router.routes
+    )

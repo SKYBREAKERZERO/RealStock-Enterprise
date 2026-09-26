@@ -1,278 +1,682 @@
 name: realstock-enterprise
 
 
+
+
+
 # ==============================================================
+
 # Services
+
 # ==============================================================
+
 services:
 
+
+
   # ============================================================
+
   # LocalStack
+
   # ============================================================
+
   # Local AWS development environment.
+
   #
+
   # Planned / used services:
+
   # - S3
+
   # - DynamoDB
+
   # - Kinesis
+
   # - EventBridge
+
   # - SQS
+
   # - SNS
+
   # - Secrets Manager
+
   # - KMS
+
   # - CloudWatch
+
   #
+
   # Windows host:
+
   #   http://127.0.0.1:4566
+
   #
+
   # Docker internal:
+
   #   http://localstack:4566
+
   # ============================================================
+
   localstack:
+
     image: localstack/localstack:2026.7.1
+
     container_name: realstock-localstack
+
     restart: unless-stopped
 
+
+
     ports:
+
       - "127.0.0.1:4566:4566"
 
+
+
     environment:
+
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
 
+
+
       # Real token must exist only in local .env.
+
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
 
+
+
       PERSISTENCE: "1"
+
       DEBUG: "0"
 
+
+
     volumes:
+
       - localstack-data:/var/lib/localstack
 
+
+
     healthcheck:
+
       test:
+
         [
+
           "CMD",
+
           "curl",
+
           "-f",
+
           "http://localhost:4566/_localstack/health"
+
         ]
+
       interval: 10s
+
       timeout: 5s
+
       retries: 12
+
       start_period: 30s
 
+
+
     networks:
+
       - realstock-local
 
 
+
+
+
   # ============================================================
+
   # PostgreSQL
+
   # ============================================================
+
   # Local development replacement for Aurora PostgreSQL.
+
   #
+
   # Windows host:
+
   #   127.0.0.1:15432
+
   #
+
   # Docker internal:
+
   #   postgres:5432
+
   #
+
   # Host port 5432 is intentionally not used because another
+
   # PostgreSQL instance already occupies that port.
+
   # ============================================================
+
   postgres:
+
     image: postgres:16-alpine
+
     container_name: realstock-postgres
+
     restart: unless-stopped
+
+
 
     environment:
+
       POSTGRES_DB: ${POSTGRES_DB:-realstock}
+
       POSTGRES_USER: ${POSTGRES_USER:-realstock}
+
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-realstock_local_password}
 
+
+
     ports:
+
       - "127.0.0.1:15432:5432"
 
+
+
     volumes:
+
       - postgres-data:/var/lib/postgresql/data
 
+
+
     healthcheck:
+
       test:
+
         [
+
           "CMD-SHELL",
+
           "pg_isready -U ${POSTGRES_USER:-realstock} -d ${POSTGRES_DB:-realstock}"
+
         ]
+
       interval: 5s
+
       timeout: 5s
+
       retries: 12
+
       start_period: 10s
 
+
+
     networks:
+
       - realstock-local
 
 
+
+
+
   # ============================================================
+
   # Redis
+
   # ============================================================
+
   # Local development replacement for Amazon ElastiCache.
+
   #
+
   # Responsibilities:
+
   # - API cache
+
   # - Market data cache
+
   # - Rate limiting
+
   # - Temporary distributed state
+
   #
+
   # Windows host:
+
   #   127.0.0.1:6379
+
   #
+
   # Docker internal:
+
   #   redis:6379
+
   # ============================================================
+
   redis:
+
     image: redis:7-alpine
+
     container_name: realstock-redis
+
     restart: unless-stopped
 
+
+
     ports:
+
       - "127.0.0.1:6379:6379"
 
+
+
     command:
+
       [
+
         "redis-server",
+
         "--appendonly",
+
         "yes",
+
         "--appendfsync",
+
         "everysec"
+
       ]
 
+
+
     volumes:
+
       - redis-data:/data
 
+
+
     healthcheck:
+
       test:
+
         [
+
           "CMD",
+
           "redis-cli",
+
           "ping"
+
         ]
+
       interval: 5s
+
       timeout: 3s
+
       retries: 12
+
       start_period: 5s
 
+
+
     networks:
+
       - realstock-local
 
 
+
+
+
   # ============================================================
+
   # OpenTelemetry Collector
+
   # ============================================================
+
   # Local telemetry gateway for distributed tracing.
+
   #
+
   # Windows host:
+
   #
+
   #   OTLP HTTP:
+
   #     http://127.0.0.1:4318
+
   #
+
   #   Collector health:
+
   #     http://127.0.0.1:13133
+
   #
+
   # Docker internal:
+
   #
+
   #   OTLP gRPC:
+
   #     otel-collector:4317
+
   #
+
   #   OTLP HTTP:
+
   #     otel-collector:4318
+
   #
+
   # Future AWS:
+
   #
+
   #   ECS Fargate
+
   #        |
+
   #        v
+
   #   ADOT Collector
+
   #        |
+
   #        v
+
   #      AWS X-Ray
+
   # ============================================================
+
   otel-collector:
+
     image: otel/opentelemetry-collector-contrib:0.160.0
+
     container_name: realstock-otel-collector
+
     restart: unless-stopped
 
+
+
     command:
+
       [
+
         "--config=/etc/otelcol-contrib/config.yaml"
+
       ]
 
+
+
     volumes:
+
       - ./infra/observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
 
+
+
     ports:
+
       - "127.0.0.1:4318:4318"
+
       - "127.0.0.1:13133:13133"
 
+
+
     networks:
+
       - realstock-local
 
 
+
+
+
   # ============================================================
+
   # RealStock API
+
   # ============================================================
+
   # Production-style FastAPI runtime image used locally through
+
   # Docker Compose.
+
   #
+
   # Windows host:
+
   #   http://127.0.0.1:18000
+
   #
+
   # Docker internal:
+
   #
+
   #   API:
+
   #     api:8000
+
   #
+
   #   PostgreSQL:
+
   #     postgres:5432
+
   #
+
   #   Redis:
+
   #     redis:6379
+
   #
+
   #   LocalStack:
+
   #     http://localstack:4566
+
   #
+
   # Liveness:
+
   #   /health
+
   #
+
   # Readiness:
+
   #   /health/ready
+
   # ============================================================
+
   api:
+
+    build:
+
+      context: .
+
+      dockerfile: services/api/Dockerfile
+
+
+
+    image: realstock-api:1.0.0
+
+    container_name: realstock-api
+
+    restart: unless-stopped
+
+
+
+    environment:
+
+      # --------------------------------------------------------
+
+      # Application
+
+      # --------------------------------------------------------
+
+      APP_ENV: local
+
+      APP_NAME: realstock-api
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
+
+
+
+      # --------------------------------------------------------
+
+      # AWS / LocalStack
+
+      # --------------------------------------------------------
+
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+
+      AWS_ENDPOINT_URL: "http://localstack:4566"
+
+
+
+      # --------------------------------------------------------
+
+      # PostgreSQL
+
+      #
+
+      # Docker containers must use Docker DNS service name
+
+      # "postgres", not localhost.
+
+      # --------------------------------------------------------
+
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}"
+
+
+
+      # --------------------------------------------------------
+
+      # Redis
+
+      # --------------------------------------------------------
+
+      REDIS_URL: "redis://redis:6379/0"
+
+
+
+      # --------------------------------------------------------
+
+      # Market Data
+
+      # --------------------------------------------------------
+
+      MARKET_DATA_PROVIDER: "${MARKET_DATA_PROVIDER:-mock}"
+
+      TWELVE_DATA_API_KEY: "${TWELVE_DATA_API_KEY:-}"
+
+
+
+    ports:
+
+      - "127.0.0.1:18000:8000"
+
+
+
+    depends_on:
+
+      postgres:
+
+        condition: service_healthy
+
+
+
+      redis:
+
+        condition: service_healthy
+
+
+
+      localstack:
+
+        condition: service_healthy
+
+
+
+    stop_grace_period: 30s
+
+
+
+    networks:
+
+      - realstock-local
+
+
+
+
+
+  # ============================================================
+
+  # ============================================================
+  # Trading Pending Order Worker
+  # ============================================================
+  # Dedicated long-running background worker for persisted
+  # PENDING LIMIT paper-trading orders.
+  #
+  # Runtime flow:
+  #
+  #   PostgreSQL PENDING LIMIT orders
+  #       |
+  #       v
+  #   discover order IDs
+  #       |
+  #       v
+  #   Redis bid/ask quote
+  #       |
+  #       v
+  #   account/order/position pessimistic locks
+  #       |
+  #       v
+  #   fill when limit condition is satisfied
+  #       |
+  #       v
+  #   atomic PostgreSQL commit
+  #
+  # Operational characteristics:
+  # - no HTTP endpoint;
+  # - no exposed host port;
+  # - independent from the API process;
+  # - PostgreSQL-backed durable order state;
+  # - Redis-backed current bid/ask quote lookup;
+  # - optional Alpaca bid/ask fallback when credentials exist;
+  # - graceful Docker stop window;
+  # - API image healthcheck explicitly disabled because this
+  #   process does not run an HTTP server.
+  # ============================================================
+  trading-order-worker:
     build:
       context: .
       dockerfile: services/api/Dockerfile
 
     image: realstock-api:1.0.0
-    container_name: realstock-api
+    container_name: realstock-trading-order-worker
     restart: unless-stopped
+    init: true
+
+    command:
+      - python
+      - -m
+      - services.trading.pending_order_worker
 
     environment:
       # --------------------------------------------------------
       # Application
       # --------------------------------------------------------
       APP_ENV: local
-      APP_NAME: realstock-api
+      APP_NAME: realstock-trading-order-worker
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
-
-      # --------------------------------------------------------
-      # AWS / LocalStack
-      # --------------------------------------------------------
-      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
-      AWS_ENDPOINT_URL: "http://localstack:4566"
 
       # --------------------------------------------------------
       # PostgreSQL
-      #
-      # Docker containers must use Docker DNS service name
-      # "postgres", not localhost.
       # --------------------------------------------------------
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}"
 
@@ -282,13 +686,20 @@ services:
       REDIS_URL: "redis://redis:6379/0"
 
       # --------------------------------------------------------
-      # Market Data
+      # Trading Order Worker
       # --------------------------------------------------------
-      MARKET_DATA_PROVIDER: "${MARKET_DATA_PROVIDER:-mock}"
-      TWELVE_DATA_API_KEY: "${TWELVE_DATA_API_KEY:-}"
+      TRADING_ORDER_WORKER_BATCH_SIZE: ${TRADING_ORDER_WORKER_BATCH_SIZE:-100}
+      TRADING_ORDER_WORKER_POLL_SECONDS: ${TRADING_ORDER_WORKER_POLL_SECONDS:-2}
 
-    ports:
-      - "127.0.0.1:18000:8000"
+      # --------------------------------------------------------
+      # Optional real bid/ask provider
+      # --------------------------------------------------------
+      # Leave both credentials empty to use Redis-only quote mode.
+      ALPACA_API_KEY_ID: "${ALPACA_API_KEY_ID:-}"
+      ALPACA_API_SECRET_KEY: "${ALPACA_API_SECRET_KEY:-}"
+      ALPACA_DATA_FEED: "${ALPACA_DATA_FEED:-iex}"
+      ALPACA_MARKET_DATA_BASE_URL: "${ALPACA_MARKET_DATA_BASE_URL:-https://data.alpaca.markets}"
+      ALPACA_QUOTE_TIMEOUT_SECONDS: ${ALPACA_QUOTE_TIMEOUT_SECONDS:-5}
 
     depends_on:
       postgres:
@@ -297,8 +708,11 @@ services:
       redis:
         condition: service_healthy
 
-      localstack:
-        condition: service_healthy
+    # services/api/Dockerfile contains an HTTP API healthcheck.
+    # This worker has no HTTP server, so inheriting that check would
+    # incorrectly mark a healthy worker as unhealthy.
+    healthcheck:
+      disable: true
 
     stop_grace_period: 30s
 
@@ -306,173 +720,340 @@ services:
       - realstock-local
 
 
-  # ============================================================
   # Transactional Outbox Dispatcher
+
   # ============================================================
+
   # Dedicated long-running background worker responsible for
+
   # reliable transactional outbox delivery.
+
   #
+
   # Runtime flow:
+
   #
+
   #   PostgreSQL transactional outbox
+
   #       |
+
   #       v
+
   #   claim + lease
+
   #       |
+
   #       v
+
   #   EventBridge
+
   #       |
+
   #       v
+
   #   publish acknowledgement / retry
+
   #
+
   # Operational characteristics:
+
   # - no HTTP endpoint;
+
   # - no exposed host port;
+
   # - independent from the API process;
+
   # - PostgreSQL-backed durable delivery state;
+
   # - EventBridge publication through LocalStack locally;
+
   # - CloudWatch operational metrics through LocalStack locally;
+
   # - SIGTERM / SIGINT graceful shutdown.
+
   #
+
   # Redis is not an operational dependency of this worker.
+
   # REDIS_URL is provided only because it is currently part of
+
   # the shared application Settings contract.
+
   # ============================================================
+
   outbox-dispatcher:
+
     build:
+
       context: .
+
       dockerfile: services/outbox_dispatcher/Dockerfile
 
+
+
     image: realstock-outbox-dispatcher:1.0.0
+
     container_name: realstock-outbox-dispatcher
+
     restart: unless-stopped
+
+
 
     # Run a minimal init process as PID 1.
+
     # This improves signal forwarding and child-process reaping.
+
     init: true
 
+
+
     environment:
+
       # --------------------------------------------------------
+
       # Application
+
       # --------------------------------------------------------
+
       APP_ENV: local
+
       APP_NAME: realstock-outbox-dispatcher
+
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
+
+
       # --------------------------------------------------------
+
       # AWS / LocalStack
+
       #
+
       # Containers must use Docker DNS service name "localstack".
+
       # --------------------------------------------------------
+
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+
       AWS_ENDPOINT_URL: "http://localstack:4566"
 
+
+
       # --------------------------------------------------------
+
       # PostgreSQL
+
       #
+
       # Containers must use Docker DNS service name "postgres".
+
       # --------------------------------------------------------
+
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-realstock}:${POSTGRES_PASSWORD:-realstock_local_password}@postgres:5432/${POSTGRES_DB:-realstock}"
 
+
+
       # --------------------------------------------------------
+
       # Shared Settings compatibility
+
       #
+
       # The outbox worker currently does not access Redis.
+
       # --------------------------------------------------------
+
       REDIS_URL: "redis://redis:6379/0"
 
+
+
       # --------------------------------------------------------
+
       # Transactional Outbox Dispatcher
+
       # --------------------------------------------------------
+
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+
       OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-60}
+
       OUTBOX_POLL_INTERVAL_SECONDS: ${OUTBOX_POLL_INTERVAL_SECONDS:-1}
+
       OUTBOX_ERROR_BACKOFF_SECONDS: ${OUTBOX_ERROR_BACKOFF_SECONDS:-5}
+
       OUTBOX_EVENT_BUS_NAME: ${OUTBOX_EVENT_BUS_NAME:-default}
 
+
+
       # --------------------------------------------------------
+
       # Outbox Observability
+
       # --------------------------------------------------------
+
       OUTBOX_METRICS_NAMESPACE: ${OUTBOX_METRICS_NAMESPACE:-RealStock/Outbox}
+
       OUTBOX_METRICS_INTERVAL_SECONDS: ${OUTBOX_METRICS_INTERVAL_SECONDS:-30}
 
+
+
     depends_on:
+
       postgres:
+
         condition: service_healthy
+
+
 
       localstack:
+
         condition: service_healthy
+
+
 
     # Docker sends SIGTERM first. The worker finishes the current
+
     # dispatch operation and exits before Docker resorts to SIGKILL.
+
     stop_grace_period: 30s
 
+
+
     networks:
+
       - realstock-local
 
 
+
+
+
   # ============================================================
+
   # Frontend
+
   # ============================================================
+
   # Production Vite build served by nginx.
+
   #
+
   # Runtime routing:
+
   #   /         -> React SPA
+
   #   /api/*    -> api:8000
+
   #   /health*  -> api:8000
+
   # ============================================================
+
   frontend:
+
     build:
+
       context: ./frontend/web
+
       dockerfile: Dockerfile
 
+
+
     image: realstock-frontend:1.0.0
+
     container_name: realstock-frontend
+
     restart: unless-stopped
 
+
+
     ports:
+
       - "127.0.0.1:18080:80"
 
+
+
     depends_on:
+
       api:
+
         condition: service_healthy
 
+
+
     networks:
+
       - realstock-local
 
+
+
     security_opt:
+
       - no-new-privileges:true
+
+
 
     read_only: true
 
+
+
     tmpfs:
+
       - /var/cache/nginx
+
       - /var/run
 
 
+
+
+
 # ==============================================================
+
 # Networks
+
 # ==============================================================
+
 networks:
 
+
+
   realstock-local:
+
     name: realstock-local
+
     driver: bridge
 
 
+
+
+
 # ==============================================================
+
 # Persistent Volumes
+
 # ==============================================================
+
 volumes:
 
+
+
   # LocalStack persistent state.
+
   localstack-data:
+
     name: realstock-localstack-data
 
+
+
   # PostgreSQL persistent database.
+
   postgres-data:
+
     name: realstock-postgres-data
 
+
+
   # Redis AOF persistent state.
+
   redis-data:
+
     name: realstock-redis-data
