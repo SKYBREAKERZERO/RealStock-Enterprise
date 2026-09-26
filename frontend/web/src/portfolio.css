@@ -1,0 +1,330 @@
+.portfolio-page {
+  display: grid;
+  gap: 16px;
+}
+
+.portfolio-create-card {
+  min-height: 0 !important;
+  padding: 20px 22px !important;
+}
+
+.portfolio-create-header,
+.portfolio-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.portfolio-create-header h2,
+.portfolio-card-header h2 {
+  margin: 0;
+}
+
+.portfolio-create-header p,
+.portfolio-card-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.portfolio-create-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.portfolio-create-form input {
+  width: min(360px, 100%);
+  min-height: 38px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.portfolio-create-form input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 14%);
+}
+
+.portfolio-scope-note {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.portfolio-card {
+  padding: 20px 22px !important;
+}
+
+.portfolio-summary-grid {
+  margin-top: 16px;
+}
+
+.portfolio-table {
+  margin-top: 16px;
+}
+
+.portfolio-table .market-table {
+  table-layout: fixed;
+}
+
+.portfolio-table .market-table th,
+.portfolio-table .market-table td {
+  vertical-align: middle;
+}
+
+.portfolio-table .market-table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.portfolio-table .market-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.portfolio-table .market-table th:last-child,
+.portfolio-table .market-table td:last-child {
+  width: 112px;
+  text-align: right;
+}
+
+.portfolio-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.portfolio-icon-button,
+.portfolio-toggle-button,
+.portfolio-secondary-button,
+.portfolio-danger-button,
+.portfolio-cancel-button {
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.portfolio-icon-button:disabled,
+.portfolio-toggle-button:disabled,
+.portfolio-secondary-button:disabled,
+.portfolio-danger-button:disabled,
+.portfolio-cancel-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.portfolio-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #dbe4ef;
+  background: #ffffff;
+  color: #475569;
+}
+
+.portfolio-icon-button:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.portfolio-icon-button.danger:hover:not(:disabled) {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #dc2626;
+}
+
+.portfolio-card-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.portfolio-toggle-button,
+.portfolio-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.portfolio-toggle-button:hover:not(:disabled),
+.portfolio-secondary-button:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.portfolio-position-panel {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      #f8fbff 0%,
+      #f8fafc 100%
+    );
+}
+
+.portfolio-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.portfolio-panel-header strong {
+  color: #0f172a;
+}
+
+.portfolio-position-form {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.2fr)
+    90px
+    minmax(130px, 1fr)
+    minmax(150px, 1fr)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.portfolio-position-form.edit-form {
+  grid-template-columns:
+    minmax(130px, 1fr)
+    minmax(150px, 1fr)
+    auto
+    auto;
+}
+
+.portfolio-field {
+  display: grid;
+  gap: 6px;
+}
+
+.portfolio-field label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.portfolio-field input,
+.portfolio-field select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.portfolio-field input:focus,
+.portfolio-field select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 14%);
+}
+
+.portfolio-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #dbe4ef;
+  background: #ffffff;
+  color: #475569;
+}
+
+.portfolio-cancel-button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.portfolio-delete-confirm {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #fecdd3;
+  border-radius: 12px;
+  background: #fff7f8;
+}
+
+.portfolio-delete-confirm strong {
+  display: block;
+  color: #991b1b;
+}
+
+.portfolio-delete-confirm p {
+  margin: 5px 0 12px;
+  color: #7f1d1d;
+  font-size: 13px;
+}
+
+.portfolio-delete-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.portfolio-danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid #dc2626;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.portfolio-danger-button:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.portfolio-inline-error {
+  margin: 10px 0 0;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+@media (max-width: 1050px) {
+  .portfolio-position-form,
+  .portfolio-position-form.edit-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .portfolio-position-form,
+  .portfolio-position-form.edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-table {
+    overflow-x: auto;
+  }
+
+  .portfolio-table .market-table {
+    min-width: 900px;
+  }
+}

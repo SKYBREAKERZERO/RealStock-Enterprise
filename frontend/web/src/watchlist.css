@@ -1,0 +1,369 @@
+.watchlist-page .watchlist-card {
+  overflow: hidden;
+}
+
+.watchlist-page .watchlist-header {
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.watchlist-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+
+  min-height: 35px;
+
+  padding:
+    0 12px;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius: 8px;
+
+  color:
+    var(--text-secondary);
+
+  background:
+    #ffffff;
+
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 750;
+
+  box-shadow:
+    0 1px 2px
+    rgb(15 23 42 / 4%);
+
+  cursor: pointer;
+
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.watchlist-refresh-button:hover:not(:disabled) {
+  color:
+    var(--blue);
+
+  border-color:
+    #bfdbfe;
+
+  background:
+    #eff6ff;
+
+  box-shadow:
+    0 4px 12px
+    rgb(37 99 235 / 9%);
+}
+
+.watchlist-refresh-button:active:not(:disabled) {
+  transform:
+    translateY(1px);
+}
+
+.watchlist-refresh-button:disabled {
+  color:
+    #94a3b8;
+
+  background:
+    #f8fafc;
+
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.watchlist-refresh-icon.spinning {
+  animation:
+    watchlist-spin 0.9s linear infinite;
+}
+
+@keyframes watchlist-spin {
+  to {
+    transform:
+      rotate(360deg);
+  }
+}
+
+.watchlist-stock-picker {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.watchlist-stock-picker input {
+  width: min(360px, 100%);
+}
+
+.watchlist-kpi-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+
+  gap: 10px;
+
+  margin:
+    0 0 16px;
+}
+
+.watchlist-kpi {
+  min-width: 0;
+
+  padding:
+    12px 14px;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius: 10px;
+
+  background:
+    #ffffff;
+
+  box-shadow:
+    0 1px 2px
+    rgb(15 23 42 / 3%);
+}
+
+.watchlist-kpi > span {
+  display: block;
+
+  color:
+    var(--text-subtle);
+
+  font-size: 9px;
+  line-height: 1.3;
+  font-weight: 750;
+}
+
+.watchlist-kpi > strong {
+  display: block;
+
+  margin-top: 5px;
+
+  color:
+    var(--text-primary);
+
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 800;
+
+  letter-spacing:
+    -0.02em;
+}
+
+.watchlist-kpi > small {
+  display: block;
+
+  margin-top: 4px;
+
+  overflow: hidden;
+
+  color:
+    var(--text-subtle);
+
+  font-size: 9px;
+  line-height: 1.35;
+
+  text-overflow:
+    ellipsis;
+
+  white-space: nowrap;
+}
+
+.watchlist-empty-state {
+  min-height: 150px;
+}
+
+.watchlist-table-wrapper {
+  margin-top: 2px;
+
+  border:
+    1px solid
+    #eef2f7;
+
+  border-radius: 10px;
+
+  overflow-x: auto;
+}
+
+.watchlist-table {
+  min-width: 900px;
+}
+
+.watchlist-table th {
+  padding:
+    9px 12px;
+}
+
+.watchlist-table td {
+  padding:
+    11px 12px;
+}
+
+.watchlist-table tbody tr:hover {
+  background:
+    #f8fafc;
+}
+
+.watchlist-table th:nth-child(2),
+.watchlist-table th:nth-child(3),
+.watchlist-table th:nth-child(4),
+.watchlist-table th:nth-child(5),
+.watchlist-table td:nth-child(2),
+.watchlist-table td:nth-child(3),
+.watchlist-table td:nth-child(4),
+.watchlist-table td:nth-child(5) {
+  text-align: right;
+}
+
+.watchlist-price-cell {
+  color:
+    var(--text-primary) !important;
+
+  font-variant-numeric:
+    tabular-nums;
+
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.watchlist-range-cell {
+  color:
+    var(--text-subtle) !important;
+
+  font-variant-numeric:
+    tabular-nums;
+
+  white-space: nowrap;
+}
+
+.watchlist-source-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 22px;
+
+  padding:
+    3px 7px;
+
+  border:
+    1px solid
+    #e2e8f0;
+
+  border-radius: 999px;
+
+  color:
+    #475569;
+
+  background:
+    #f8fafc;
+
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 750;
+
+  white-space: nowrap;
+}
+
+.watchlist-source-badge.provider {
+  border-color:
+    #bbf7d0;
+
+  color:
+    #15803d;
+
+  background:
+    #f0fdf4;
+}
+
+.watchlist-source-badge.cache {
+  border-color:
+    #dbeafe;
+
+  color:
+    #1d4ed8;
+
+  background:
+    #eff6ff;
+}
+
+.watchlist-source-badge.stale {
+  border-color:
+    #fde68a;
+
+  color:
+    #a16207;
+
+  background:
+    #fffbeb;
+}
+
+.watchlist-page .remove-stock-button:disabled {
+  color:
+    #cbd5e1;
+
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.watchlist-page .remove-stock-button:disabled:hover {
+  border-color:
+    transparent;
+
+  color:
+    #cbd5e1;
+
+  background:
+    transparent;
+}
+
+
+@media (
+  max-width: 980px
+) {
+  .watchlist-kpi-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}
+
+
+@media (
+  max-width: 620px
+) {
+  .watchlist-page .watchlist-header {
+    align-items:
+      stretch;
+  }
+
+  .watchlist-refresh-button {
+    width: 100%;
+  }
+
+  .watchlist-stock-picker input {
+    width: 100%;
+  }
+
+  .watchlist-kpi-grid {
+    grid-template-columns:
+      1fr 1fr;
+  }
+
+  .watchlist-kpi {
+    padding:
+      11px 12px;
+  }
+
+  .watchlist-table {
+    min-width: 820px;
+  }
+}
