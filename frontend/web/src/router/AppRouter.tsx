@@ -37,6 +37,10 @@ import {
 } from "../pages/SystemHealthPage";
 
 import {
+  TradingPage,
+} from "../pages/TradingPage";
+
+import {
   WatchlistPage,
 } from "../pages/WatchlistPage";
 
@@ -77,6 +81,13 @@ export function AppRouter() {
           path="/portfolios"
           element={
             <PortfoliosPage />
+          }
+        />
+
+        <Route
+          path="/trading"
+          element={
+            <TradingPage />
           }
         />
 

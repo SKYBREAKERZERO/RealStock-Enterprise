@@ -23,6 +23,9 @@ from services.api.routes.portfolio import (
 from services.api.routes.trading import (
     router as trading_router,
 )
+from services.api.routes.trading_simulation import (
+    router as trading_simulation_router,
+)
 from services.api.routes.watchlist import (
     router as watchlist_router,
 )
@@ -83,6 +86,7 @@ ROUTERS = (
     outbox_router,
     news_router,
     trading_router,
+    trading_simulation_router,
 )
 
 for api_router in ROUTERS:

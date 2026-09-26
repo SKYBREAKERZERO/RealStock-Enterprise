@@ -20,6 +20,7 @@ export const zhCN = {
     dashboard: "仪表盘",
     marketData: "市场数据",
     portfolios: "投资组合",
+    trading: "模拟交易",
     watchlist: "自选列表",
     news: "实时新闻",
     systemHealth: "系统状态",

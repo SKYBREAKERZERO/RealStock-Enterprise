@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeftRight,
   BarChart3,
   BriefcaseBusiness,
   HeartPulse,
@@ -65,6 +66,17 @@ const NAVIGATION_ITEMS:
 
       icon:
         BriefcaseBusiness,
+    },
+
+    {
+      to:
+        "/trading",
+
+      translationKey:
+        "nav.trading",
+
+      icon:
+        ArrowLeftRight,
     },
 
     {

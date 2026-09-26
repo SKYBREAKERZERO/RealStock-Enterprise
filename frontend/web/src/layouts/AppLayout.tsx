@@ -129,6 +129,14 @@ function getPageTitleKey(
 
   if (
     pathname.startsWith(
+      "/trading",
+    )
+  ) {
+    return "nav.trading";
+  }
+
+  if (
+    pathname.startsWith(
       "/watchlist",
     )
   ) {

@@ -21,6 +21,7 @@ export const enUS = {
     dashboard: "Dashboard",
     marketData: "Market Data",
     portfolios: "Portfolios",
+    trading: "Paper Trading",
     watchlist: "Watchlist",
     news: "Live News",
     systemHealth: "System Health",
